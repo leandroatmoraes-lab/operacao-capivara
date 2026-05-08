@@ -26,8 +26,16 @@ const db = getFirestore(app);
 
 const iconeCarro = new L.Icon({
   iconUrl: "https://cdn-icons-png.flaticon.com/512/744/744465.png",
-  iconSize: [32, 32],
+  iconSize: [34, 34],
 });
+
+const coresStatus = {
+  Livre: "#00ff88",
+  "Em missão": "#ffd000",
+  Apoio: "#00aaff",
+  Emergência: "#ff3333",
+  Offline: "#777",
+};
 
 export default function App() {
   const [tela, setTela] = useState("central");
@@ -63,9 +71,7 @@ export default function App() {
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9-]/g, "");
 
-    const numeroUnico = Date.now();
-
-    return `${nomeBase}-${numeroUnico}`;
+    return `${nomeBase}-${Date.now()}`;
   }
 
   function enviarLocalizacao(idAtual) {
@@ -81,16 +87,13 @@ export default function App() {
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-
         await setDoc(doc(db, "carros", idAtual), {
           motorista: motorista.trim(),
           copiloto: copiloto.trim(),
           identificador: identificador.trim(),
           status,
-          latitude: lat,
-          longitude: lng,
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
           online: true,
           atualizado: new Date().toISOString(),
         });
@@ -151,221 +154,439 @@ export default function App() {
     alert("Rastreamento parado!");
   }
 
+  const online = carros.filter((c) => c.online).length;
+  const emergencia = carros.filter((c) => c.status === "Emergência").length;
+  const emMissao = carros.filter((c) => c.status === "Em missão").length;
+
   return (
-    <div
-      style={{
-        background: "#0b0f0d",
-        minHeight: "100vh",
-        color: "#00ff88",
-        padding: 20,
-        fontFamily: "Arial",
-      }}
-    >
-      <h1>🟢 OPERAÇÃO CAPIVARA</h1>
-
-      <div style={{ marginBottom: 20 }}>
-        <button onClick={() => setTela("central")}>Central</button>{" "}
-        <button onClick={() => setTela("motorista")}>Motorista</button>
-      </div>
-
-      {tela === "central" && (
+    <div style={styles.app}>
+      <header style={styles.header}>
         <div>
-          <h2>Central Tática</h2>
-          <p>Total de equipes rastreadas: {carros.length}</p>
+          <div style={styles.kicker}>CENTRAL TÁTICA</div>
+          <h1 style={styles.title}>OPERAÇÃO CAPIVARA</h1>
+          <div style={styles.subtitle}>Controle total da missão</div>
+        </div>
 
-          <div
+        <div style={styles.nav}>
+          <button
+            onClick={() => setTela("central")}
             style={{
-              display: "grid",
-              gridTemplateColumns: "2fr 1fr",
-              gap: 20,
+              ...styles.navButton,
+              ...(tela === "central" ? styles.navButtonActive : {}),
             }}
           >
-            <div
-              style={{
-                height: 500,
-                border: "2px solid #00ff88",
-                borderRadius: 10,
-                overflow: "hidden",
-              }}
-            >
-              <MapContainer
-                center={[-26.9167, -49.0667]}
-                zoom={13}
-                style={{ height: "100%", width: "100%" }}
-              >
-                <TileLayer
-                  attribution="&copy; OpenStreetMap"
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
+            Central
+          </button>
 
-                {carros.map((carro) =>
-                  carro.latitude && carro.longitude ? (
-                    <Marker
-                      key={carro.id}
-                      position={[carro.latitude, carro.longitude]}
-                      icon={iconeCarro}
-                    >
-                      <Popup>
-                        <strong>{carro.motorista}</strong>
-                        <br />
-                        Copiloto: {carro.copiloto || "Não informado"}
-                        <br />
-                        Identificação:{" "}
-                        {carro.identificador || "Sem identificação"}
-                        <br />
-                        Status: {carro.status}
-                        <br />
-                        Online: {carro.online ? "Sim" : "Não"}
-                        <br />
-                        Atualizado: {carro.atualizado}
-                      </Popup>
-                    </Marker>
-                  ) : null
-                )}
-              </MapContainer>
-            </div>
-
-            <div>
-              {carros.map((carro) => (
-                <div
-                  key={carro.id}
-                  style={{
-                    background: "#161b18",
-                    padding: 15,
-                    borderRadius: 10,
-                    marginBottom: 10,
-                    border: carro.online
-                      ? "1px solid #00ff88"
-                      : "1px solid #777",
-                    opacity: carro.online ? 1 : 0.6,
-                  }}
-                >
-                  <strong>{carro.motorista}</strong>
-                  <p>Copiloto: {carro.copiloto || "Não informado"}</p>
-                  <p>
-                    Identificação:{" "}
-                    {carro.identificador || "Sem identificação"}
-                  </p>
-                  <p>Status: {carro.status}</p>
-                  <p>Online: {carro.online ? "Sim" : "Não"}</p>
-                  <p>Atualizado: {carro.atualizado}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+          <button
+            onClick={() => setTela("motorista")}
+            style={{
+              ...styles.navButton,
+              ...(tela === "motorista" ? styles.navButtonActive : {}),
+            }}
+          >
+            Motorista
+          </button>
         </div>
+      </header>
+
+      {tela === "central" && (
+        <main style={styles.main}>
+          <section style={styles.statsGrid}>
+            <div style={styles.statCard}>
+              <span style={styles.statLabel}>Equipes online</span>
+              <strong style={styles.statValue}>{online}</strong>
+            </div>
+
+            <div style={styles.statCard}>
+              <span style={styles.statLabel}>Em missão</span>
+              <strong style={{ ...styles.statValue, color: "#ffd000" }}>
+                {emMissao}
+              </strong>
+            </div>
+
+            <div style={styles.statCard}>
+              <span style={styles.statLabel}>Emergências</span>
+              <strong style={{ ...styles.statValue, color: "#ff3333" }}>
+                {emergencia}
+              </strong>
+            </div>
+
+            <div style={styles.statCard}>
+              <span style={styles.statLabel}>Total no radar</span>
+              <strong style={styles.statValue}>{carros.length}</strong>
+            </div>
+          </section>
+
+          <section style={styles.centralGrid}>
+            <div style={styles.mapPanel}>
+              <div style={styles.panelHeader}>
+                <strong>Mapa operacional</strong>
+                <span>Blumenau / SC</span>
+              </div>
+
+              <div style={styles.mapBox}>
+                <MapContainer
+                  center={[-26.9167, -49.0667]}
+                  zoom={13}
+                  style={{ height: "100%", width: "100%" }}
+                >
+                  <TileLayer
+                    attribution="&copy; OpenStreetMap"
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+
+                  {carros.map((carro) =>
+                    carro.latitude && carro.longitude ? (
+                      <Marker
+                        key={carro.id}
+                        position={[carro.latitude, carro.longitude]}
+                        icon={iconeCarro}
+                      >
+                        <Popup>
+                          <strong>{carro.motorista}</strong>
+                          <br />
+                          Copiloto: {carro.copiloto || "Não informado"}
+                          <br />
+                          Identificação:{" "}
+                          {carro.identificador || "Sem identificação"}
+                          <br />
+                          Status: {carro.status}
+                          <br />
+                          Online: {carro.online ? "Sim" : "Não"}
+                          <br />
+                          Atualizado: {formatarData(carro.atualizado)}
+                        </Popup>
+                      </Marker>
+                    ) : null
+                  )}
+                </MapContainer>
+              </div>
+            </div>
+
+            <aside style={styles.listPanel}>
+              <div style={styles.panelHeader}>
+                <strong>Equipes no radar</strong>
+                <span>{carros.length} registros</span>
+              </div>
+
+              <div style={styles.teamList}>
+                {carros.length === 0 && (
+                  <div style={styles.empty}>Nenhuma equipe rastreada.</div>
+                )}
+
+                {carros.map((carro) => (
+                  <div
+                    key={carro.id}
+                    style={{
+                      ...styles.teamCard,
+                      borderColor: coresStatus[carro.status] || "#00ff88",
+                      opacity: carro.online ? 1 : 0.55,
+                    }}
+                  >
+                    <div style={styles.teamTop}>
+                      <strong>{carro.motorista || "Sem nome"}</strong>
+                      <span
+                        style={{
+                          ...styles.badge,
+                          background: coresStatus[carro.status] || "#00ff88",
+                        }}
+                      >
+                        {carro.status || "Sem status"}
+                      </span>
+                    </div>
+
+                    <p>Copiloto: {carro.copiloto || "Não informado"}</p>
+                    <p>
+                      Veículo: {carro.identificador || "Sem identificação"}
+                    </p>
+                    <p>Online: {carro.online ? "Sim" : "Não"}</p>
+                    <small>Atualizado: {formatarData(carro.atualizado)}</small>
+                  </div>
+                ))}
+              </div>
+            </aside>
+          </section>
+        </main>
       )}
 
       {tela === "motorista" && (
-        <div
-          style={{
-            background: "#161b18",
-            padding: 20,
-            borderRadius: 10,
-            maxWidth: 430,
-          }}
-        >
-          <h2>Equipe do Veículo</h2>
+        <main style={styles.driverPage}>
+          <section style={styles.driverCard}>
+            <div style={styles.panelHeader}>
+              <strong>Identificação da equipe</strong>
+              <span>GPS a cada 15s</span>
+            </div>
 
-          <p>Motorista:</p>
-          <input
-            value={motorista}
-            onChange={(e) => setMotorista(e.target.value)}
-            placeholder="Nome do motorista"
-            style={{
-              width: "100%",
-              padding: 10,
-              marginBottom: 15,
-              background: "#0b0f0d",
-              color: "#00ff88",
-              border: "1px solid #00ff88",
-            }}
-          />
+            <label style={styles.label}>Motorista</label>
+            <input
+              value={motorista}
+              onChange={(e) => setMotorista(e.target.value)}
+              placeholder="Nome do motorista"
+              style={styles.input}
+            />
 
-          <p>Copiloto:</p>
-          <input
-            value={copiloto}
-            onChange={(e) => setCopiloto(e.target.value)}
-            placeholder="Nome do copiloto, se tiver"
-            style={{
-              width: "100%",
-              padding: 10,
-              marginBottom: 15,
-              background: "#0b0f0d",
-              color: "#00ff88",
-              border: "1px solid #00ff88",
-            }}
-          />
+            <label style={styles.label}>Copiloto</label>
+            <input
+              value={copiloto}
+              onChange={(e) => setCopiloto(e.target.value)}
+              placeholder="Nome do copiloto, se tiver"
+              style={styles.input}
+            />
 
-          <p>Identificação do carro:</p>
-          <input
-            value={identificador}
-            onChange={(e) => setIdentificador(e.target.value)}
-            placeholder="Ex: Gol prata, Carro 12, placa final 1234"
-            style={{
-              width: "100%",
-              padding: 10,
-              marginBottom: 20,
-              background: "#0b0f0d",
-              color: "#00ff88",
-              border: "1px solid #00ff88",
-            }}
-          />
+            <label style={styles.label}>Identificação do veículo</label>
+            <input
+              value={identificador}
+              onChange={(e) => setIdentificador(e.target.value)}
+              placeholder="Ex: Gol prata, Carro 12, placa final 1234"
+              style={styles.input}
+            />
 
-          <p>Status atual:</p>
+            <label style={styles.label}>Status atual</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              style={{
+                ...styles.input,
+                borderColor: coresStatus[status] || "#00ff88",
+              }}
+            >
+              <option>Livre</option>
+              <option>Em missão</option>
+              <option>Apoio</option>
+              <option>Emergência</option>
+            </select>
 
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            style={{
-              width: "100%",
-              padding: 10,
-              marginBottom: 20,
-              background: "#0b0f0d",
-              color: "#00ff88",
-              border: "1px solid #00ff88",
-            }}
-          >
-            <option>Livre</option>
-            <option>Em missão</option>
-            <option>Apoio</option>
-            <option>Emergência</option>
-          </select>
+            <button onClick={iniciarGPS} style={styles.startButton}>
+              INICIAR GPS
+            </button>
 
-          <button
-            onClick={iniciarGPS}
-            style={{
-              width: "100%",
-              padding: 15,
-              background: "#00aa55",
-              color: "white",
-              border: "none",
-              borderRadius: 8,
-              cursor: "pointer",
-              fontSize: 16,
-            }}
-          >
-            INICIAR GPS
-          </button>
+            <button onClick={pararGPS} style={styles.stopButton}>
+              PARAR GPS
+            </button>
 
-          <button
-            onClick={pararGPS}
-            style={{
-              width: "100%",
-              padding: 15,
-              background: "#aa0000",
-              color: "white",
-              border: "none",
-              borderRadius: 8,
-              cursor: "pointer",
-              fontSize: 16,
-              marginTop: 10,
-            }}
-          >
-            PARAR GPS
-          </button>
-        </div>
+            <div style={styles.infoBox}>
+              O rastreamento só inicia após clicar em <b>INICIAR GPS</b> e pode
+              ser encerrado a qualquer momento.
+            </div>
+          </section>
+        </main>
       )}
     </div>
   );
 }
+
+function formatarData(valor) {
+  if (!valor) return "Não informado";
+
+  try {
+    return new Date(valor).toLocaleString("pt-BR");
+  } catch {
+    return valor;
+  }
+}
+
+const styles = {
+  app: {
+    background:
+      "radial-gradient(circle at top, #17351f 0%, #0b0f0d 38%, #050705 100%)",
+    minHeight: "100vh",
+    color: "#d8ffe8",
+    padding: 18,
+    fontFamily: "Arial, sans-serif",
+  },
+  header: {
+    maxWidth: 1300,
+    margin: "0 auto 18px auto",
+    padding: 18,
+    border: "1px solid rgba(0,255,136,0.35)",
+    borderRadius: 16,
+    background: "rgba(10,18,13,0.88)",
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 16,
+    alignItems: "center",
+    boxShadow: "0 0 30px rgba(0,255,136,0.08)",
+  },
+  kicker: {
+    color: "#00ff88",
+    fontSize: 12,
+    letterSpacing: 3,
+    fontWeight: "bold",
+  },
+  title: {
+    margin: "4px 0",
+    fontSize: 34,
+    color: "#ffffff",
+  },
+  subtitle: {
+    color: "#9cffc8",
+    fontSize: 14,
+  },
+  nav: {
+    display: "flex",
+    gap: 10,
+  },
+  navButton: {
+    padding: "12px 18px",
+    borderRadius: 10,
+    border: "1px solid rgba(0,255,136,0.35)",
+    background: "#101812",
+    color: "#d8ffe8",
+    cursor: "pointer",
+    fontWeight: "bold",
+  },
+  navButtonActive: {
+    background: "#00aa55",
+    color: "#fff",
+  },
+  main: {
+    maxWidth: 1300,
+    margin: "0 auto",
+  },
+  statsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+    gap: 12,
+    marginBottom: 16,
+  },
+  statCard: {
+    background: "rgba(10,18,13,0.9)",
+    border: "1px solid rgba(0,255,136,0.25)",
+    borderRadius: 14,
+    padding: 16,
+  },
+  statLabel: {
+    display: "block",
+    color: "#9cffc8",
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  statValue: {
+    fontSize: 34,
+    color: "#00ff88",
+  },
+  centralGrid: {
+    display: "grid",
+    gridTemplateColumns: "2fr 1fr",
+    gap: 16,
+  },
+  mapPanel: {
+    background: "rgba(10,18,13,0.9)",
+    border: "1px solid rgba(0,255,136,0.25)",
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  listPanel: {
+    background: "rgba(10,18,13,0.9)",
+    border: "1px solid rgba(0,255,136,0.25)",
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  panelHeader: {
+    padding: 14,
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 10,
+    alignItems: "center",
+    borderBottom: "1px solid rgba(0,255,136,0.2)",
+    color: "#ffffff",
+  },
+  mapBox: {
+    height: 560,
+  },
+  teamList: {
+    padding: 12,
+    maxHeight: 560,
+    overflowY: "auto",
+  },
+  teamCard: {
+    background: "#111a14",
+    border: "1px solid #00ff88",
+    borderLeft: "6px solid #00ff88",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+  },
+  teamTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 8,
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  badge: {
+    color: "#061008",
+    padding: "4px 8px",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: "bold",
+  },
+  empty: {
+    padding: 20,
+    color: "#9cffc8",
+    textAlign: "center",
+  },
+  driverPage: {
+    maxWidth: 520,
+    margin: "0 auto",
+  },
+  driverCard: {
+    background: "rgba(10,18,13,0.93)",
+    border: "1px solid rgba(0,255,136,0.32)",
+    borderRadius: 16,
+    overflow: "hidden",
+    paddingBottom: 16,
+  },
+  label: {
+    display: "block",
+    margin: "14px 16px 6px",
+    color: "#9cffc8",
+    fontSize: 13,
+    fontWeight: "bold",
+  },
+  input: {
+    width: "calc(100% - 32px)",
+    margin: "0 16px",
+    padding: 13,
+    borderRadius: 10,
+    background: "#080d09",
+    color: "#d8ffe8",
+    border: "1px solid rgba(0,255,136,0.35)",
+    outline: "none",
+    boxSizing: "border-box",
+  },
+  startButton: {
+    width: "calc(100% - 32px)",
+    margin: "18px 16px 0",
+    padding: 15,
+    borderRadius: 10,
+    background: "#00aa55",
+    color: "#fff",
+    border: "none",
+    fontWeight: "bold",
+    cursor: "pointer",
+    fontSize: 15,
+  },
+  stopButton: {
+    width: "calc(100% - 32px)",
+    margin: "10px 16px 0",
+    padding: 15,
+    borderRadius: 10,
+    background: "#aa0000",
+    color: "#fff",
+    border: "none",
+    fontWeight: "bold",
+    cursor: "pointer",
+    fontSize: 15,
+  },
+  infoBox: {
+    margin: 16,
+    padding: 12,
+    borderRadius: 10,
+    background: "rgba(0,255,136,0.08)",
+    border: "1px solid rgba(0,255,136,0.2)",
+    color: "#bfffd8",
+    fontSize: 13,
+  },
+};
