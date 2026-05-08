@@ -6,6 +6,7 @@ import {
   setDoc,
   collection,
   onSnapshot,
+  updateDoc,
 } from "firebase/firestore";
 
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
@@ -29,26 +30,21 @@ const iconeCarro = new L.Icon({
   iconSize: [34, 34],
 });
 
-const coresStatus = {
-  Livre: "#00ff88",
-  "Em missão": "#ffd000",
-  Apoio: "#00aaff",
-  Emergência: "#ff3333",
-  Offline: "#777",
-};
-
 export default function App() {
   const [tela, setTela] = useState("central");
+
   const [status, setStatus] = useState("Livre");
   const [carros, setCarros] = useState([]);
 
   const [motorista, setMotorista] = useState("");
   const [copiloto, setCopiloto] = useState("");
   const [identificador, setIdentificador] = useState("");
+
   const [idEquipe, setIdEquipe] = useState("");
 
   const [missaoTexto, setMissaoTexto] = useState("");
   const [equipeMissao, setEquipeMissao] = useState("");
+
   const [missaoAtual, setMissaoAtual] = useState(null);
 
   const intervaloRef = useRef(null);
@@ -59,6 +55,7 @@ export default function App() {
         id: documento.id,
         ...documento.data(),
       }));
+
       setCarros(lista);
     });
 
@@ -90,44 +87,21 @@ export default function App() {
   }
 
   function enviarLocalizacao(idAtual) {
-    if (!motorista.trim()) {
-      alert("Informe o nome do motorista antes de iniciar.");
-      return;
-    }
-
-    if (!navigator.geolocation) {
-      alert("GPS não suportado");
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        await setDoc(doc(db, "carros", idAtual), {
-          motorista: motorista.trim(),
-          copiloto: copiloto.trim(),
-          identificador: identificador.trim(),
-          status,
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          online: true,
-          atualizado: new Date().toISOString(),
-        });
-
-        console.log("Localização enviada:", idAtual);
-      },
-      (erro) => {
-        console.log(erro);
-        alert("Erro ao pegar GPS");
-      }
-    );
+    navigator.geolocation.getCurrentPosition(async (position) => {
+      await setDoc(doc(db, "carros", idAtual), {
+        motorista,
+        copiloto,
+        identificador,
+        status,
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        atualizado: new Date().toISOString(),
+        online: true,
+      });
+    });
   }
 
   function iniciarGPS() {
-    if (!motorista.trim()) {
-      alert("Informe o nome do motorista antes de iniciar.");
-      return;
-    }
-
     let idAtual = idEquipe;
 
     if (!idAtual) {
@@ -137,122 +111,85 @@ export default function App() {
 
     enviarLocalizacao(idAtual);
 
-    if (intervaloRef.current) {
-      clearInterval(intervaloRef.current);
-    }
-
     intervaloRef.current = setInterval(() => {
       enviarLocalizacao(idAtual);
     }, 15000);
 
-    alert("Rastreamento iniciado!");
+    alert("GPS iniciado");
   }
 
   async function pararGPS() {
-    if (intervaloRef.current) {
-      clearInterval(intervaloRef.current);
-      intervaloRef.current = null;
-    }
+    clearInterval(intervaloRef.current);
 
     if (idEquipe) {
-      await setDoc(
-        doc(db, "carros", idEquipe),
-        {
-          online: false,
-          status: "Offline",
-          atualizado: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      await updateDoc(doc(db, "carros", idEquipe), {
+        online: false,
+        status: "Offline",
+      });
     }
 
-    alert("Rastreamento parado!");
+    alert("GPS parado");
   }
 
   async function enviarMissao() {
-    if (!equipeMissao) {
-      alert("Selecione uma equipe.");
-      return;
-    }
-
-    if (!missaoTexto.trim()) {
-      alert("Digite a missão.");
+    if (!equipeMissao || !missaoTexto) {
+      alert("Preencha os campos");
       return;
     }
 
     await setDoc(doc(db, "missoes", equipeMissao), {
-      texto: missaoTexto.trim(),
-      status: "Nova missão",
+      texto: missaoTexto,
       enviadaEm: new Date().toISOString(),
+      statusOperacional: "Nova missão",
     });
 
     setMissaoTexto("");
-    alert("Missão enviada!");
+
+    alert("Missão enviada");
   }
 
-  const online = carros.filter((c) => c.online).length;
-  const emergencia = carros.filter((c) => c.status === "Emergência").length;
-  const emMissao = carros.filter((c) => c.status === "Em missão").length;
+  async function atualizarStatusMissao(novoStatus) {
+    if (!idEquipe) return;
+
+    await updateDoc(doc(db, "missoes", idEquipe), {
+      statusOperacional: novoStatus,
+      atualizadoEm: new Date().toISOString(),
+    });
+
+    alert(`Status atualizado: ${novoStatus}`);
+  }
 
   return (
     <div style={styles.app}>
       <header style={styles.header}>
-        <div>
-          <div style={styles.kicker}>CENTRAL TÁTICA</div>
-          <h1 style={styles.title}>OPERAÇÃO CAPIVARA</h1>
-          <div style={styles.subtitle}>Controle total da missão</div>
-        </div>
+        <h1>🟢 OPERAÇÃO CAPIVARA</h1>
 
-        <div style={styles.nav}>
-          <button onClick={() => setTela("central")} style={styles.navButton}>
+        <div style={styles.menu}>
+          <button onClick={() => setTela("central")} style={styles.menuBtn}>
             Central
           </button>
-          <button onClick={() => setTela("motorista")} style={styles.navButton}>
+
+          <button onClick={() => setTela("motorista")} style={styles.menuBtn}>
             Motorista
           </button>
         </div>
       </header>
 
       {tela === "central" && (
-        <main style={styles.main}>
-          <section style={styles.statsGrid}>
-            <div style={styles.statCard}>
-              <span style={styles.statLabel}>Equipes online</span>
-              <strong style={styles.statValue}>{online}</strong>
-            </div>
-
-            <div style={styles.statCard}>
-              <span style={styles.statLabel}>Em missão</span>
-              <strong style={{ ...styles.statValue, color: "#ffd000" }}>
-                {emMissao}
-              </strong>
-            </div>
-
-            <div style={styles.statCard}>
-              <span style={styles.statLabel}>Emergências</span>
-              <strong style={{ ...styles.statValue, color: "#ff3333" }}>
-                {emergencia}
-              </strong>
-            </div>
-
-            <div style={styles.statCard}>
-              <span style={styles.statLabel}>Total no radar</span>
-              <strong style={styles.statValue}>{carros.length}</strong>
-            </div>
-          </section>
-
-          <section style={styles.missionPanel}>
-            <h2>Enviar missão</h2>
+        <>
+          <div style={styles.card}>
+            <h2>📡 Enviar missão</h2>
 
             <select
               value={equipeMissao}
               onChange={(e) => setEquipeMissao(e.target.value)}
               style={styles.input}
             >
-              <option value="">Selecione uma equipe</option>
+              <option value="">Selecione equipe</option>
+
               {carros.map((carro) => (
                 <option key={carro.id} value={carro.id}>
-                  {carro.motorista} — {carro.identificador || "sem veículo"}
+                  {carro.motorista}
                 </option>
               ))}
             </select>
@@ -260,371 +197,305 @@ export default function App() {
             <textarea
               value={missaoTexto}
               onChange={(e) => setMissaoTexto(e.target.value)}
-              placeholder="Digite a missão. Ex: Ir para o setor Garcia buscar item."
-              style={{ ...styles.input, height: 90, resize: "none" }}
+              placeholder="Digite missão..."
+              style={styles.textarea}
             />
 
-            <button onClick={enviarMissao} style={styles.startButton}>
+            <button onClick={enviarMissao} style={styles.greenBtn}>
               ENVIAR MISSÃO
             </button>
-          </section>
+          </div>
 
-          <section style={styles.centralGrid}>
-            <div style={styles.mapPanel}>
-              <div style={styles.panelHeader}>
-                <strong>Mapa operacional</strong>
-                <span>Blumenau / SC</span>
-              </div>
+          <div style={styles.mapContainer}>
+            <MapContainer
+              center={[-26.9167, -49.0667]}
+              zoom={13}
+              style={{ height: "100%", width: "100%" }}
+            >
+              <TileLayer
+                attribution="&copy; OpenStreetMap"
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
 
-              <div style={styles.mapBox}>
-                <MapContainer
-                  center={[-26.9167, -49.0667]}
-                  zoom={13}
-                  style={{ height: "100%", width: "100%" }}
-                >
-                  <TileLayer
-                    attribution="&copy; OpenStreetMap"
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
-
-                  {carros.map((carro) =>
-                    carro.latitude && carro.longitude ? (
-                      <Marker
-                        key={carro.id}
-                        position={[carro.latitude, carro.longitude]}
-                        icon={iconeCarro}
-                      >
-                        <Popup>
-                          <strong>{carro.motorista}</strong>
-                          <br />
-                          Copiloto: {carro.copiloto || "Não informado"}
-                          <br />
-                          Veículo: {carro.identificador || "Sem identificação"}
-                          <br />
-                          Status: {carro.status}
-                          <br />
-                          Online: {carro.online ? "Sim" : "Não"}
-                        </Popup>
-                      </Marker>
-                    ) : null
-                  )}
-                </MapContainer>
-              </div>
-            </div>
-
-            <aside style={styles.listPanel}>
-              <div style={styles.panelHeader}>
-                <strong>Equipes no radar</strong>
-                <span>{carros.length} registros</span>
-              </div>
-
-              <div style={styles.teamList}>
-                {carros.map((carro) => (
-                  <div
+              {carros.map((carro) =>
+                carro.latitude && carro.longitude ? (
+                  <Marker
                     key={carro.id}
-                    style={{
-                      ...styles.teamCard,
-                      borderColor: coresStatus[carro.status] || "#00ff88",
-                      opacity: carro.online ? 1 : 0.55,
-                    }}
+                    position={[carro.latitude, carro.longitude]}
+                    icon={iconeCarro}
                   >
-                    <div style={styles.teamTop}>
-                      <strong>{carro.motorista || "Sem nome"}</strong>
-                      <span
-                        style={{
-                          ...styles.badge,
-                          background: coresStatus[carro.status] || "#00ff88",
-                        }}
-                      >
-                        {carro.status || "Sem status"}
-                      </span>
-                    </div>
+                    <Popup>
+                      <strong>{carro.motorista}</strong>
+                      <br />
+                      {carro.identificador}
+                    </Popup>
+                  </Marker>
+                ) : null
+              )}
+            </MapContainer>
+          </div>
 
-                    <p>Copiloto: {carro.copiloto || "Não informado"}</p>
-                    <p>Veículo: {carro.identificador || "Sem identificação"}</p>
-                    <p>Online: {carro.online ? "Sim" : "Não"}</p>
-                    <small>Atualizado: {formatarData(carro.atualizado)}</small>
-                  </div>
-                ))}
+          <div style={styles.teamList}>
+            {carros.map((carro) => (
+              <div key={carro.id} style={styles.teamCard}>
+                <strong>{carro.motorista}</strong>
+
+                <p>{carro.identificador}</p>
+
+                <StatusMissao idEquipe={carro.id} />
               </div>
-            </aside>
-          </section>
-        </main>
+            ))}
+          </div>
+        </>
       )}
 
       {tela === "motorista" && (
-        <main style={styles.driverPage}>
-          <section style={styles.driverCard}>
-            <div style={styles.panelHeader}>
-              <strong>Identificação da equipe</strong>
-              <span>GPS a cada 15s</span>
+        <div style={styles.card}>
+          <h2>Equipe</h2>
+
+          {missaoAtual && (
+            <div style={styles.alertMission}>
+              <strong>📡 MISSÃO</strong>
+
+              <p>{missaoAtual.texto}</p>
+
+              <p>
+                <b>Status:</b> {missaoAtual.statusOperacional}
+              </p>
             </div>
+          )}
 
-            {missaoAtual && (
-              <div style={styles.missionAlert}>
-                <strong>📡 MISSÃO RECEBIDA</strong>
-                <p>{missaoAtual.texto}</p>
-                <small>Enviada em: {formatarData(missaoAtual.enviadaEm)}</small>
-              </div>
-            )}
+          <input
+            placeholder="Motorista"
+            value={motorista}
+            onChange={(e) => setMotorista(e.target.value)}
+            style={styles.input}
+          />
 
-            <label style={styles.label}>Motorista</label>
-            <input
-              value={motorista}
-              onChange={(e) => setMotorista(e.target.value)}
-              placeholder="Nome do motorista"
-              style={styles.input}
-            />
+          <input
+            placeholder="Copiloto"
+            value={copiloto}
+            onChange={(e) => setCopiloto(e.target.value)}
+            style={styles.input}
+          />
 
-            <label style={styles.label}>Copiloto</label>
-            <input
-              value={copiloto}
-              onChange={(e) => setCopiloto(e.target.value)}
-              placeholder="Nome do copiloto, se tiver"
-              style={styles.input}
-            />
+          <input
+            placeholder="Identificação veículo"
+            value={identificador}
+            onChange={(e) => setIdentificador(e.target.value)}
+            style={styles.input}
+          />
 
-            <label style={styles.label}>Identificação do veículo</label>
-            <input
-              value={identificador}
-              onChange={(e) => setIdentificador(e.target.value)}
-              placeholder="Ex: Gol prata, Carro 12"
-              style={styles.input}
-            />
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            style={styles.input}
+          >
+            <option>Livre</option>
+            <option>Em missão</option>
+            <option>Apoio</option>
+            <option>Emergência</option>
+          </select>
 
-            <label style={styles.label}>Status atual</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              style={styles.input}
-            >
-              <option>Livre</option>
-              <option>Em missão</option>
-              <option>Apoio</option>
-              <option>Emergência</option>
-            </select>
+          <button onClick={iniciarGPS} style={styles.greenBtn}>
+            INICIAR GPS
+          </button>
 
-            <button onClick={iniciarGPS} style={styles.startButton}>
-              INICIAR GPS
-            </button>
+          <button onClick={pararGPS} style={styles.redBtn}>
+            PARAR GPS
+          </button>
 
-            <button onClick={pararGPS} style={styles.stopButton}>
-              PARAR GPS
-            </button>
-          </section>
-        </main>
+          {missaoAtual && (
+            <>
+              <button
+                onClick={() =>
+                  atualizarStatusMissao("Em deslocamento")
+                }
+                style={styles.yellowBtn}
+              >
+                🚗 EM DESLOCAMENTO
+              </button>
+
+              <button
+                onClick={() =>
+                  atualizarStatusMissao("Missão concluída")
+                }
+                style={styles.greenBtn}
+              >
+                ✅ MISSÃO CONCLUÍDA
+              </button>
+
+              <button
+                onClick={() =>
+                  atualizarStatusMissao("🚨 Aguardando apoio")
+                }
+                style={styles.redBtn}
+              >
+                🚨 PEDIR APOIO
+              </button>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-function formatarData(valor) {
-  if (!valor) return "Não informado";
+function StatusMissao({ idEquipe }) {
+  const [missao, setMissao] = useState(null);
 
-  try {
-    return new Date(valor).toLocaleString("pt-BR");
-  } catch {
-    return valor;
-  }
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, "missoes", idEquipe), (snapshot) => {
+      if (snapshot.exists()) {
+        setMissao(snapshot.data());
+      }
+    });
+
+    return () => unsubscribe();
+  }, [idEquipe]);
+
+  if (!missao) return <p>Sem missão</p>;
+
+  return (
+    <div style={styles.statusBox}>
+      <p>
+        <b>Missão:</b> {missao.texto}
+      </p>
+
+      <p>
+        <b>Status:</b> {missao.statusOperacional}
+      </p>
+    </div>
+  );
 }
 
 const styles = {
   app: {
-    background:
-      "radial-gradient(circle at top, #17351f 0%, #0b0f0d 38%, #050705 100%)",
+    background: "#08110b",
     minHeight: "100vh",
     color: "#d8ffe8",
-    padding: 18,
-    fontFamily: "Arial, sans-serif",
+    padding: 20,
+    fontFamily: "Arial",
   },
+
   header: {
-    maxWidth: 1300,
-    margin: "0 auto 18px auto",
-    padding: 18,
-    border: "1px solid rgba(0,255,136,0.35)",
-    borderRadius: 16,
-    background: "rgba(10,18,13,0.88)",
     display: "flex",
     justifyContent: "space-between",
-    gap: 16,
     alignItems: "center",
+    marginBottom: 20,
   },
-  kicker: {
-    color: "#00ff88",
-    fontSize: 12,
-    letterSpacing: 3,
-    fontWeight: "bold",
-  },
-  title: {
-    margin: "4px 0",
-    fontSize: 34,
-    color: "#ffffff",
-  },
-  subtitle: {
-    color: "#9cffc8",
-    fontSize: 14,
-  },
-  nav: {
+
+  menu: {
     display: "flex",
     gap: 10,
   },
-  navButton: {
-    padding: "12px 18px",
-    borderRadius: 10,
-    border: "1px solid rgba(0,255,136,0.35)",
-    background: "#101812",
-    color: "#d8ffe8",
-    cursor: "pointer",
-    fontWeight: "bold",
-  },
-  main: {
-    maxWidth: 1300,
-    margin: "0 auto",
-  },
-  statsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
-    gap: 12,
-    marginBottom: 16,
-  },
-  statCard: {
-    background: "rgba(10,18,13,0.9)",
-    border: "1px solid rgba(0,255,136,0.25)",
-    borderRadius: 14,
-    padding: 16,
-  },
-  statLabel: {
-    display: "block",
-    color: "#9cffc8",
-    fontSize: 13,
-    marginBottom: 8,
-  },
-  statValue: {
-    fontSize: 34,
-    color: "#00ff88",
-  },
-  missionPanel: {
-    background: "rgba(10,18,13,0.9)",
-    border: "1px solid rgba(255,208,0,0.35)",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-  },
-  centralGrid: {
-    display: "grid",
-    gridTemplateColumns: "2fr 1fr",
-    gap: 16,
-  },
-  mapPanel: {
-    background: "rgba(10,18,13,0.9)",
-    border: "1px solid rgba(0,255,136,0.25)",
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  listPanel: {
-    background: "rgba(10,18,13,0.9)",
-    border: "1px solid rgba(0,255,136,0.25)",
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  panelHeader: {
-    padding: 14,
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 10,
-    alignItems: "center",
-    borderBottom: "1px solid rgba(0,255,136,0.2)",
-    color: "#ffffff",
-  },
-  mapBox: {
-    height: 560,
-  },
-  teamList: {
-    padding: 12,
-    maxHeight: 560,
-    overflowY: "auto",
-  },
-  teamCard: {
-    background: "#111a14",
+
+  menuBtn: {
+    padding: 10,
+    background: "#102017",
     border: "1px solid #00ff88",
-    borderLeft: "6px solid #00ff88",
+    color: "#fff",
+    borderRadius: 8,
+    cursor: "pointer",
+  },
+
+  card: {
+    background: "#102017",
+    padding: 20,
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
+    marginBottom: 20,
   },
-  teamTop: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 8,
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  badge: {
-    color: "#061008",
-    padding: "4px 8px",
-    borderRadius: 999,
-    fontSize: 11,
-    fontWeight: "bold",
-  },
-  driverPage: {
-    maxWidth: 520,
-    margin: "0 auto",
-  },
-  driverCard: {
-    background: "rgba(10,18,13,0.93)",
-    border: "1px solid rgba(0,255,136,0.32)",
-    borderRadius: 16,
-    overflow: "hidden",
-    paddingBottom: 16,
-  },
-  label: {
-    display: "block",
-    margin: "14px 16px 6px",
-    color: "#9cffc8",
-    fontSize: 13,
-    fontWeight: "bold",
-  },
+
   input: {
-    width: "calc(100% - 32px)",
-    margin: "0 16px 12px",
-    padding: 13,
-    borderRadius: 10,
-    background: "#080d09",
-    color: "#d8ffe8",
-    border: "1px solid rgba(0,255,136,0.35)",
-    outline: "none",
+    width: "100%",
+    padding: 12,
+    marginBottom: 12,
+    borderRadius: 8,
+    border: "1px solid #00ff88",
+    background: "#08110b",
+    color: "#fff",
     boxSizing: "border-box",
   },
-  startButton: {
-    width: "calc(100% - 32px)",
-    margin: "10px 16px 0",
-    padding: 15,
-    borderRadius: 10,
+
+  textarea: {
+    width: "100%",
+    height: 80,
+    padding: 12,
+    marginBottom: 12,
+    borderRadius: 8,
+    border: "1px solid #00ff88",
+    background: "#08110b",
+    color: "#fff",
+    boxSizing: "border-box",
+  },
+
+  greenBtn: {
+    width: "100%",
+    padding: 14,
     background: "#00aa55",
     color: "#fff",
     border: "none",
-    fontWeight: "bold",
+    borderRadius: 8,
     cursor: "pointer",
-    fontSize: 15,
+    marginBottom: 10,
+    fontWeight: "bold",
   },
-  stopButton: {
-    width: "calc(100% - 32px)",
-    margin: "10px 16px 0",
-    padding: 15,
-    borderRadius: 10,
+
+  redBtn: {
+    width: "100%",
+    padding: 14,
     background: "#aa0000",
     color: "#fff",
     border: "none",
-    fontWeight: "bold",
+    borderRadius: 8,
     cursor: "pointer",
-    fontSize: 15,
+    marginBottom: 10,
+    fontWeight: "bold",
   },
-  missionAlert: {
-    margin: 16,
+
+  yellowBtn: {
+    width: "100%",
     padding: 14,
+    background: "#d4a000",
+    color: "#000",
+    border: "none",
+    borderRadius: 8,
+    cursor: "pointer",
+    marginBottom: 10,
+    fontWeight: "bold",
+  },
+
+  mapContainer: {
+    height: 450,
     borderRadius: 12,
-    background: "rgba(255,208,0,0.15)",
+    overflow: "hidden",
+    marginBottom: 20,
+  },
+
+  teamList: {
+    display: "grid",
+    gap: 12,
+  },
+
+  teamCard: {
+    background: "#102017",
+    padding: 16,
+    borderRadius: 12,
+    borderLeft: "5px solid #00ff88",
+  },
+
+  statusBox: {
+    marginTop: 10,
+    padding: 10,
+    background: "#08110b",
+    borderRadius: 8,
+  },
+
+  alertMission: {
+    background: "#3b3000",
     border: "1px solid #ffd000",
-    color: "#fff2a8",
+    padding: 14,
+    borderRadius: 10,
+    marginBottom: 20,
   },
 };
