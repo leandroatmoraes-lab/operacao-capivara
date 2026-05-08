@@ -5,6 +5,7 @@ import {
   doc,
   setDoc,
   updateDoc,
+  addDoc,
   collection,
   onSnapshot,
 } from "firebase/firestore";
@@ -52,6 +53,7 @@ export default function App() {
   const [status, setStatus] = useState("Livre");
   const [carros, setCarros] = useState([]);
   const [missoes, setMissoes] = useState({});
+  const [historico, setHistorico] = useState([]);
 
   const [motorista, setMotorista] = useState(() => localStorage.getItem("motorista") || "");
   const [copiloto, setCopiloto] = useState(() => localStorage.getItem("copiloto") || "");
@@ -113,6 +115,26 @@ export default function App() {
       primeiraLeituraMissoesRef.current = false;
       pedidosApoioAnterioresRef.current = pedidosApoioAtuais;
       setMissoes(lista);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, "historico_missoes"), (snapshot) => {
+      const lista = snapshot.docs
+        .map((documento) => ({
+          id: documento.id,
+          ...documento.data(),
+        }))
+        .sort((a, b) => {
+          const dataA = new Date(a.criadoEm || 0).getTime();
+          const dataB = new Date(b.criadoEm || 0).getTime();
+          return dataB - dataA;
+        })
+        .slice(0, 20);
+
+      setHistorico(lista);
     });
 
     return () => unsubscribe();
@@ -259,6 +281,13 @@ export default function App() {
     alert("Equipe limpa. Você pode cadastrar uma nova equipe.");
   }
 
+  async function registrarHistorico(dados) {
+    await addDoc(collection(db, "historico_missoes"), {
+      ...dados,
+      criadoEm: new Date().toISOString(),
+    });
+  }
+
   async function enviarMissao() {
     if (!equipeMissao) {
       alert("Selecione uma equipe.");
@@ -270,11 +299,25 @@ export default function App() {
       return;
     }
 
+    const equipeSelecionada = carros.find((carro) => carro.id === equipeMissao);
+    const agora = new Date().toISOString();
+
     await setDoc(doc(db, "missoes", equipeMissao), {
       texto: missaoTexto.trim(),
       statusOperacional: "Nova missão",
-      enviadaEm: new Date().toISOString(),
-      atualizadoEm: new Date().toISOString(),
+      enviadaEm: agora,
+      atualizadoEm: agora,
+    });
+
+    await registrarHistorico({
+      tipo: "Missão enviada",
+      equipeId: equipeMissao,
+      motorista: equipeSelecionada?.motorista || "Não informado",
+      copiloto: equipeSelecionada?.copiloto || "",
+      identificador: equipeSelecionada?.identificador || "",
+      texto: missaoTexto.trim(),
+      statusOperacional: "Nova missão",
+      enviadaEm: agora,
     });
 
     setMissaoTexto("");
@@ -284,9 +327,22 @@ export default function App() {
   async function atualizarStatusMissao(novoStatus) {
     if (!idEquipe) return;
 
+    const agora = new Date().toISOString();
+
     await updateDoc(doc(db, "missoes", idEquipe), {
       statusOperacional: novoStatus,
-      atualizadoEm: new Date().toISOString(),
+      atualizadoEm: agora,
+    });
+
+    await registrarHistorico({
+      tipo: "Status atualizado",
+      equipeId: idEquipe,
+      motorista: motorista || "Não informado",
+      copiloto,
+      identificador,
+      texto: missaoAtual?.texto || "Missão não informada",
+      statusOperacional: novoStatus,
+      atualizadoEm: agora,
     });
 
     alert(`Status atualizado: ${novoStatus}`);
@@ -455,6 +511,41 @@ export default function App() {
                 })}
               </MapContainer>
             </div>
+          </section>
+
+          <section style={styles.historicoPanel}>
+            <div style={styles.panelHeaderClean}>
+              <strong>Histórico operacional</strong>
+              <span>Últimos 20 registros</span>
+            </div>
+
+            {historico.length === 0 && (
+              <div style={styles.noMission}>Nenhum histórico registrado.</div>
+            )}
+
+            {historico.map((item) => (
+              <div key={item.id} style={styles.historicoItem}>
+                <div>
+                  <strong>{item.tipo}</strong>
+                  <p>{item.texto}</p>
+                  <small>
+                    {item.motorista} — {item.identificador || "sem veículo"}
+                  </small>
+                </div>
+
+                <span
+                  style={{
+                    ...styles.historicoBadge,
+                    background:
+                      coresMissao[item.statusOperacional] || "#00ff88",
+                  }}
+                >
+                  {item.statusOperacional}
+                </span>
+
+                <small>{formatarData(item.criadoEm)}</small>
+              </div>
+            ))}
           </section>
         </main>
       )}
@@ -686,6 +777,31 @@ const styles = {
     padding: 16,
     marginBottom: 16,
   },
+  historicoPanel: {
+    background: "rgba(10,18,13,0.9)",
+    border: "1px solid rgba(0,255,136,0.25)",
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 16,
+  },
+  historicoItem: {
+    display: "grid",
+    gridTemplateColumns: "1fr auto auto",
+    gap: 12,
+    alignItems: "center",
+    background: "#111a14",
+    border: "1px solid rgba(0,255,136,0.18)",
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
+  },
+  historicoBadge: {
+    color: "#061008",
+    padding: "6px 10px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: "bold",
+  },
   panelHeaderClean: {
     display: "flex",
     justifyContent: "space-between",
@@ -842,5 +958,15 @@ const styles = {
     background: "rgba(255,208,0,0.15)",
     border: "1px solid #ffd000",
     color: "#fff2a8",
+  },
+  noMission: {
+    marginTop: 10,
+    marginBottom: 10,
+    padding: 10,
+    borderRadius: 10,
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    color: "#9cffc8",
+    fontSize: 13,
   },
 };
