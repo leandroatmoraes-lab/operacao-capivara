@@ -5,7 +5,6 @@ import {
   doc,
   setDoc,
   updateDoc,
-  addDoc,
   collection,
   onSnapshot,
 } from "firebase/firestore";
@@ -26,13 +25,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-const iconeCapivara = new L.Icon({
-  iconUrl: "/capivara-192.png",
-  iconSize: [42, 42],
-  iconAnchor: [21, 42],
-  popupAnchor: [0, -38],
-});
-
 const coresStatus = {
   Livre: "#00ff88",
   "Em missão": "#ffd000",
@@ -48,17 +40,58 @@ const coresMissao = {
   "🚨 Aguardando apoio": "#ff3333",
 };
 
+function criarIconeCapivara(status) {
+  const cor = coresStatus[status] || "#00ff88";
+  const emergencia = status === "Emergência";
+
+  return L.divIcon({
+    className: "",
+    iconSize: emergencia ? [58, 58] : [48, 48],
+    iconAnchor: emergencia ? [29, 58] : [24, 48],
+    popupAnchor: [0, emergencia ? -54 : -44],
+    html: `
+      <div style="
+        width:${emergencia ? 58 : 48}px;
+        height:${emergencia ? 58 : 48}px;
+        border-radius:50%;
+        background:${cor};
+        border:3px solid #ffffff;
+        box-shadow:0 0 ${emergencia ? 22 : 12}px ${cor};
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        overflow:hidden;
+        ${emergencia ? "animation:pulse 1s infinite;" : ""}
+      ">
+        <img src="/capivara-192.png" style="
+          width:${emergencia ? 48 : 40}px;
+          height:${emergencia ? 48 : 40}px;
+          object-fit:cover;
+          border-radius:50%;
+        " />
+      </div>
+    `,
+  });
+}
+
 export default function App() {
   const [tela, setTela] = useState("central");
   const [status, setStatus] = useState("Livre");
   const [carros, setCarros] = useState([]);
   const [missoes, setMissoes] = useState({});
-  const [historico, setHistorico] = useState([]);
 
-  const [motorista, setMotorista] = useState(() => localStorage.getItem("motorista") || "");
-  const [copiloto, setCopiloto] = useState(() => localStorage.getItem("copiloto") || "");
-  const [identificador, setIdentificador] = useState(() => localStorage.getItem("identificador") || "");
-  const [idEquipe, setIdEquipe] = useState(() => localStorage.getItem("idEquipe") || "");
+  const [motorista, setMotorista] = useState(
+    () => localStorage.getItem("motorista") || ""
+  );
+  const [copiloto, setCopiloto] = useState(
+    () => localStorage.getItem("copiloto") || ""
+  );
+  const [identificador, setIdentificador] = useState(
+    () => localStorage.getItem("identificador") || ""
+  );
+  const [idEquipe, setIdEquipe] = useState(
+    () => localStorage.getItem("idEquipe") || ""
+  );
 
   const [missaoTexto, setMissaoTexto] = useState("");
   const [equipeMissao, setEquipeMissao] = useState("");
@@ -72,7 +105,10 @@ export default function App() {
 
   useEffect(() => localStorage.setItem("motorista", motorista), [motorista]);
   useEffect(() => localStorage.setItem("copiloto", copiloto), [copiloto]);
-  useEffect(() => localStorage.setItem("identificador", identificador), [identificador]);
+  useEffect(
+    () => localStorage.setItem("identificador", identificador),
+    [identificador]
+  );
   useEffect(() => localStorage.setItem("idEquipe", idEquipe), [idEquipe]);
 
   useEffect(() => {
@@ -81,6 +117,7 @@ export default function App() {
         id: documento.id,
         ...documento.data(),
       }));
+
       setCarros(lista);
     });
 
@@ -121,26 +158,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "historico_missoes"), (snapshot) => {
-      const lista = snapshot.docs
-        .map((documento) => ({
-          id: documento.id,
-          ...documento.data(),
-        }))
-        .sort((a, b) => {
-          const dataA = new Date(a.criadoEm || 0).getTime();
-          const dataB = new Date(b.criadoEm || 0).getTime();
-          return dataB - dataA;
-        })
-        .slice(0, 20);
-
-      setHistorico(lista);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
     if (!idEquipe) return;
 
     primeiraLeituraMissaoEquipeRef.current = true;
@@ -148,6 +165,7 @@ export default function App() {
     const unsubscribe = onSnapshot(doc(db, "missoes", idEquipe), (snapshot) => {
       if (snapshot.exists()) {
         const dados = snapshot.data();
+
         const missaoNova =
           dados.enviadaEm && dados.enviadaEm !== ultimaMissaoEquipeRef.current;
 
@@ -260,10 +278,22 @@ export default function App() {
     alert("Rastreamento parado!");
   }
 
-  function trocarEquipe() {
+  async function trocarEquipe() {
     if (intervaloRef.current) {
       clearInterval(intervaloRef.current);
       intervaloRef.current = null;
+    }
+
+    if (idEquipe) {
+      await setDoc(
+        doc(db, "carros", idEquipe),
+        {
+          online: false,
+          status: "Offline",
+          atualizado: new Date().toISOString(),
+        },
+        { merge: true }
+      );
     }
 
     localStorage.removeItem("motorista");
@@ -278,14 +308,7 @@ export default function App() {
     setMissaoAtual(null);
     setStatus("Livre");
 
-    alert("Equipe limpa. Você pode cadastrar uma nova equipe.");
-  }
-
-  async function registrarHistorico(dados) {
-    await addDoc(collection(db, "historico_missoes"), {
-      ...dados,
-      criadoEm: new Date().toISOString(),
-    });
+    alert("Equipe limpa e removida da Central.");
   }
 
   async function enviarMissao() {
@@ -299,7 +322,6 @@ export default function App() {
       return;
     }
 
-    const equipeSelecionada = carros.find((carro) => carro.id === equipeMissao);
     const agora = new Date().toISOString();
 
     await setDoc(doc(db, "missoes", equipeMissao), {
@@ -309,17 +331,6 @@ export default function App() {
       atualizadoEm: agora,
     });
 
-    await registrarHistorico({
-      tipo: "Missão enviada",
-      equipeId: equipeMissao,
-      motorista: equipeSelecionada?.motorista || "Não informado",
-      copiloto: equipeSelecionada?.copiloto || "",
-      identificador: equipeSelecionada?.identificador || "",
-      texto: missaoTexto.trim(),
-      statusOperacional: "Nova missão",
-      enviadaEm: agora,
-    });
-
     setMissaoTexto("");
     alert("Missão enviada!");
   }
@@ -327,36 +338,35 @@ export default function App() {
   async function atualizarStatusMissao(novoStatus) {
     if (!idEquipe) return;
 
-    const agora = new Date().toISOString();
-
     await updateDoc(doc(db, "missoes", idEquipe), {
       statusOperacional: novoStatus,
-      atualizadoEm: agora,
-    });
-
-    await registrarHistorico({
-      tipo: "Status atualizado",
-      equipeId: idEquipe,
-      motorista: motorista || "Não informado",
-      copiloto,
-      identificador,
-      texto: missaoAtual?.texto || "Missão não informada",
-      statusOperacional: novoStatus,
-      atualizadoEm: agora,
+      atualizadoEm: new Date().toISOString(),
     });
 
     alert(`Status atualizado: ${novoStatus}`);
   }
 
-  const online = carros.filter((c) => c.online).length;
-  const emergencia = carros.filter((c) => c.status === "Emergência").length;
-  const emMissao = carros.filter((c) => c.status === "Em missão").length;
-  const apoio = Object.values(missoes).filter(
-    (m) => m.statusOperacional === "🚨 Aguardando apoio"
-  ).length;
+  const carrosOnline = carros.filter((c) => c.online);
+  const online = carrosOnline.length;
+  const emergencia = carrosOnline.filter((c) => c.status === "Emergência").length;
+  const emMissao = carrosOnline.filter((c) => c.status === "Em missão").length;
+  const apoio = Object.entries(missoes).filter(([id, missao]) => {
+    const equipeOnline = carrosOnline.some((carro) => carro.id === id);
+    return equipeOnline && missao.statusOperacional === "🚨 Aguardando apoio";
+  }).length;
 
   return (
     <div style={styles.app}>
+      <style>
+        {`
+          @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.18); }
+            100% { transform: scale(1); }
+          }
+        `}
+      </style>
+
       <header style={styles.header}>
         <div>
           <div style={styles.kicker}>CENTRAL TÁTICA</div>
@@ -426,7 +436,7 @@ export default function App() {
           <section style={styles.missionPanel}>
             <div style={styles.panelHeaderClean}>
               <strong>Enviar missão</strong>
-              <span>Ordem em tempo real</span>
+              <span>Apenas equipes online aparecem aqui</span>
             </div>
 
             <select
@@ -435,7 +445,7 @@ export default function App() {
               style={styles.inputFull}
             >
               <option value="">Selecione uma equipe</option>
-              {carros.map((carro) => (
+              {carrosOnline.map((carro) => (
                 <option key={carro.id} value={carro.id}>
                   {carro.motorista} — {carro.identificador || "sem veículo"}
                 </option>
@@ -460,92 +470,68 @@ export default function App() {
               <span>Blumenau / SC — clique na capivara para detalhes</span>
             </div>
 
-            <div style={styles.mapBoxFull}>
-              <MapContainer
-                center={[-26.9167, -49.0667]}
-                zoom={13}
-                style={{ height: "100%", width: "100%" }}
-              >
-                <TileLayer
-                  attribution="&copy; OpenStreetMap"
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
-
-                {carros.map((carro) => {
-                  const missao = missoes[carro.id];
-
-                  return carro.latitude && carro.longitude ? (
-                    <Marker
-                      key={carro.id}
-                      position={[carro.latitude, carro.longitude]}
-                      icon={iconeCapivara}
-                    >
-                      <Popup>
-                        <div style={{ minWidth: 220 }}>
-                          <strong>{carro.motorista || "Sem motorista"}</strong>
-                          <br />
-                          <b>Copiloto:</b> {carro.copiloto || "Não informado"}
-                          <br />
-                          <b>Veículo:</b>{" "}
-                          {carro.identificador || "Sem identificação"}
-                          <br />
-                          <b>Status:</b> {carro.status || "Sem status"}
-                          <br />
-                          <b>Online:</b> {carro.online ? "Sim" : "Não"}
-                          <br />
-                          <br />
-                          <b>Missão:</b>{" "}
-                          {missao?.texto || "Sem missão ativa"}
-                          <br />
-                          <b>Status da missão:</b>{" "}
-                          {missao?.statusOperacional || "Sem status"}
-                          <br />
-                          <br />
-                          <small>
-                            Atualizado: {formatarData(carro.atualizado)}
-                          </small>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  ) : null;
-                })}
-              </MapContainer>
-            </div>
-          </section>
-
-          <section style={styles.historicoPanel}>
-            <div style={styles.panelHeaderClean}>
-              <strong>Histórico operacional</strong>
-              <span>Últimos 20 registros</span>
-            </div>
-
-            {historico.length === 0 && (
-              <div style={styles.noMission}>Nenhum histórico registrado.</div>
-            )}
-
-            {historico.map((item) => (
-              <div key={item.id} style={styles.historicoItem}>
-                <div>
-                  <strong>{item.tipo}</strong>
-                  <p>{item.texto}</p>
-                  <small>
-                    {item.motorista} — {item.identificador || "sem veículo"}
-                  </small>
-                </div>
-
-                <span
-                  style={{
-                    ...styles.historicoBadge,
-                    background:
-                      coresMissao[item.statusOperacional] || "#00ff88",
-                  }}
-                >
-                  {item.statusOperacional}
-                </span>
-
-                <small>{formatarData(item.criadoEm)}</small>
+            <div style={styles.mapWrapper}>
+              <div style={styles.legend}>
+                <div style={styles.legendTitle}>Legenda</div>
+                <div><span style={{ ...styles.dot, background: "#00ff88" }} /> Livre</div>
+                <div><span style={{ ...styles.dot, background: "#ffd000" }} /> Em missão</div>
+                <div><span style={{ ...styles.dot, background: "#00aaff" }} /> Apoio</div>
+                <div><span style={{ ...styles.dot, background: "#ff3333" }} /> Emergência</div>
               </div>
-            ))}
+
+              <div style={styles.mapBoxFull}>
+                <MapContainer
+                  center={[-26.9167, -49.0667]}
+                  zoom={13}
+                  style={{ height: "100%", width: "100%" }}
+                >
+                  <TileLayer
+                    attribution="&copy; OpenStreetMap"
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+
+                  {carrosOnline.map((carro) => {
+                    const missao = missoes[carro.id];
+
+                    return carro.latitude && carro.longitude ? (
+                      <Marker
+                        key={carro.id}
+                        position={[carro.latitude, carro.longitude]}
+                        icon={criarIconeCapivara(carro.status)}
+                      >
+                        <Popup>
+                          <div style={{ minWidth: 230 }}>
+                            <strong>{carro.motorista || "Sem motorista"}</strong>
+                            <br />
+                            <b>Copiloto:</b>{" "}
+                            {carro.copiloto || "Não informado"}
+                            <br />
+                            <b>Veículo:</b>{" "}
+                            {carro.identificador || "Sem identificação"}
+                            <br />
+                            <b>Status:</b> {carro.status || "Sem status"}
+                            <br />
+                            <b>Online:</b> Sim
+                            <br />
+                            <br />
+                            <b>Missão:</b>{" "}
+                            {missao?.texto || "Sem missão ativa"}
+                            <br />
+                            <b>Status da missão:</b>{" "}
+                            {missao?.statusOperacional || "Sem status"}
+                            <br />
+                            <br />
+                            <small>
+                              Atualizado: {formatarData(carro.atualizado)}
+                            </small>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    ) : null;
+                  })}
+                </MapContainer>
+              </div>
+            </div>
           </section>
         </main>
       )}
@@ -658,8 +644,8 @@ export default function App() {
             </button>
 
             <div style={styles.infoBox}>
-              O rastreamento só inicia após clicar em <b>INICIAR GPS</b>. Alertas
-              importantes usam vibração no celular.
+              O rastreamento só inicia após clicar em <b>INICIAR GPS</b>. Ao
+              parar ou trocar equipe, ela sai da Central.
             </div>
           </section>
         </main>
@@ -777,31 +763,6 @@ const styles = {
     padding: 16,
     marginBottom: 16,
   },
-  historicoPanel: {
-    background: "rgba(10,18,13,0.9)",
-    border: "1px solid rgba(0,255,136,0.25)",
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 16,
-  },
-  historicoItem: {
-    display: "grid",
-    gridTemplateColumns: "1fr auto auto",
-    gap: 12,
-    alignItems: "center",
-    background: "#111a14",
-    border: "1px solid rgba(0,255,136,0.18)",
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 10,
-  },
-  historicoBadge: {
-    color: "#061008",
-    padding: "6px 10px",
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: "bold",
-  },
   panelHeaderClean: {
     display: "flex",
     justifyContent: "space-between",
@@ -823,9 +784,38 @@ const styles = {
     borderBottom: "1px solid rgba(0,255,136,0.2)",
     color: "#ffffff",
   },
+  mapWrapper: {
+    position: "relative",
+  },
   mapBoxFull: {
     height: "68vh",
     minHeight: 520,
+  },
+  legend: {
+    position: "absolute",
+    zIndex: 999,
+    right: 16,
+    bottom: 16,
+    background: "rgba(8, 17, 11, 0.92)",
+    border: "1px solid rgba(0,255,136,0.35)",
+    borderRadius: 12,
+    padding: 12,
+    color: "#d8ffe8",
+    fontSize: 13,
+    boxShadow: "0 0 20px rgba(0,0,0,0.35)",
+    lineHeight: 1.8,
+  },
+  legendTitle: {
+    fontWeight: "bold",
+    marginBottom: 6,
+    color: "#fff",
+  },
+  dot: {
+    display: "inline-block",
+    width: 10,
+    height: 10,
+    borderRadius: "50%",
+    marginRight: 6,
   },
   driverPage: {
     maxWidth: 520,
@@ -958,15 +948,5 @@ const styles = {
     background: "rgba(255,208,0,0.15)",
     border: "1px solid #ffd000",
     color: "#fff2a8",
-  },
-  noMission: {
-    marginTop: 10,
-    marginBottom: 10,
-    padding: 10,
-    borderRadius: 10,
-    background: "rgba(255,255,255,0.04)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    color: "#9cffc8",
-    fontSize: 13,
   },
 };
