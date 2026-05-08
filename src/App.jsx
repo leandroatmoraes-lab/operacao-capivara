@@ -47,6 +47,10 @@ export default function App() {
   const [identificador, setIdentificador] = useState("");
   const [idEquipe, setIdEquipe] = useState("");
 
+  const [missaoTexto, setMissaoTexto] = useState("");
+  const [equipeMissao, setEquipeMissao] = useState("");
+  const [missaoAtual, setMissaoAtual] = useState(null);
+
   const intervaloRef = useRef(null);
 
   useEffect(() => {
@@ -55,12 +59,23 @@ export default function App() {
         id: documento.id,
         ...documento.data(),
       }));
-
       setCarros(lista);
     });
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!idEquipe) return;
+
+    const unsubscribe = onSnapshot(doc(db, "missoes", idEquipe), (snapshot) => {
+      if (snapshot.exists()) {
+        setMissaoAtual(snapshot.data());
+      }
+    });
+
+    return () => unsubscribe();
+  }, [idEquipe]);
 
   function gerarIdEquipe() {
     const nomeBase = motorista
@@ -154,6 +169,27 @@ export default function App() {
     alert("Rastreamento parado!");
   }
 
+  async function enviarMissao() {
+    if (!equipeMissao) {
+      alert("Selecione uma equipe.");
+      return;
+    }
+
+    if (!missaoTexto.trim()) {
+      alert("Digite a missão.");
+      return;
+    }
+
+    await setDoc(doc(db, "missoes", equipeMissao), {
+      texto: missaoTexto.trim(),
+      status: "Nova missão",
+      enviadaEm: new Date().toISOString(),
+    });
+
+    setMissaoTexto("");
+    alert("Missão enviada!");
+  }
+
   const online = carros.filter((c) => c.online).length;
   const emergencia = carros.filter((c) => c.status === "Emergência").length;
   const emMissao = carros.filter((c) => c.status === "Em missão").length;
@@ -168,23 +204,10 @@ export default function App() {
         </div>
 
         <div style={styles.nav}>
-          <button
-            onClick={() => setTela("central")}
-            style={{
-              ...styles.navButton,
-              ...(tela === "central" ? styles.navButtonActive : {}),
-            }}
-          >
+          <button onClick={() => setTela("central")} style={styles.navButton}>
             Central
           </button>
-
-          <button
-            onClick={() => setTela("motorista")}
-            style={{
-              ...styles.navButton,
-              ...(tela === "motorista" ? styles.navButtonActive : {}),
-            }}
-          >
+          <button onClick={() => setTela("motorista")} style={styles.navButton}>
             Motorista
           </button>
         </div>
@@ -218,6 +241,34 @@ export default function App() {
             </div>
           </section>
 
+          <section style={styles.missionPanel}>
+            <h2>Enviar missão</h2>
+
+            <select
+              value={equipeMissao}
+              onChange={(e) => setEquipeMissao(e.target.value)}
+              style={styles.input}
+            >
+              <option value="">Selecione uma equipe</option>
+              {carros.map((carro) => (
+                <option key={carro.id} value={carro.id}>
+                  {carro.motorista} — {carro.identificador || "sem veículo"}
+                </option>
+              ))}
+            </select>
+
+            <textarea
+              value={missaoTexto}
+              onChange={(e) => setMissaoTexto(e.target.value)}
+              placeholder="Digite a missão. Ex: Ir para o setor Garcia buscar item."
+              style={{ ...styles.input, height: 90, resize: "none" }}
+            />
+
+            <button onClick={enviarMissao} style={styles.startButton}>
+              ENVIAR MISSÃO
+            </button>
+          </section>
+
           <section style={styles.centralGrid}>
             <div style={styles.mapPanel}>
               <div style={styles.panelHeader}>
@@ -248,14 +299,11 @@ export default function App() {
                           <br />
                           Copiloto: {carro.copiloto || "Não informado"}
                           <br />
-                          Identificação:{" "}
-                          {carro.identificador || "Sem identificação"}
+                          Veículo: {carro.identificador || "Sem identificação"}
                           <br />
                           Status: {carro.status}
                           <br />
                           Online: {carro.online ? "Sim" : "Não"}
-                          <br />
-                          Atualizado: {formatarData(carro.atualizado)}
                         </Popup>
                       </Marker>
                     ) : null
@@ -271,10 +319,6 @@ export default function App() {
               </div>
 
               <div style={styles.teamList}>
-                {carros.length === 0 && (
-                  <div style={styles.empty}>Nenhuma equipe rastreada.</div>
-                )}
-
                 {carros.map((carro) => (
                   <div
                     key={carro.id}
@@ -297,9 +341,7 @@ export default function App() {
                     </div>
 
                     <p>Copiloto: {carro.copiloto || "Não informado"}</p>
-                    <p>
-                      Veículo: {carro.identificador || "Sem identificação"}
-                    </p>
+                    <p>Veículo: {carro.identificador || "Sem identificação"}</p>
                     <p>Online: {carro.online ? "Sim" : "Não"}</p>
                     <small>Atualizado: {formatarData(carro.atualizado)}</small>
                   </div>
@@ -317,6 +359,14 @@ export default function App() {
               <strong>Identificação da equipe</strong>
               <span>GPS a cada 15s</span>
             </div>
+
+            {missaoAtual && (
+              <div style={styles.missionAlert}>
+                <strong>📡 MISSÃO RECEBIDA</strong>
+                <p>{missaoAtual.texto}</p>
+                <small>Enviada em: {formatarData(missaoAtual.enviadaEm)}</small>
+              </div>
+            )}
 
             <label style={styles.label}>Motorista</label>
             <input
@@ -338,7 +388,7 @@ export default function App() {
             <input
               value={identificador}
               onChange={(e) => setIdentificador(e.target.value)}
-              placeholder="Ex: Gol prata, Carro 12, placa final 1234"
+              placeholder="Ex: Gol prata, Carro 12"
               style={styles.input}
             />
 
@@ -346,10 +396,7 @@ export default function App() {
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              style={{
-                ...styles.input,
-                borderColor: coresStatus[status] || "#00ff88",
-              }}
+              style={styles.input}
             >
               <option>Livre</option>
               <option>Em missão</option>
@@ -364,11 +411,6 @@ export default function App() {
             <button onClick={pararGPS} style={styles.stopButton}>
               PARAR GPS
             </button>
-
-            <div style={styles.infoBox}>
-              O rastreamento só inicia após clicar em <b>INICIAR GPS</b> e pode
-              ser encerrado a qualquer momento.
-            </div>
           </section>
         </main>
       )}
@@ -406,7 +448,6 @@ const styles = {
     justifyContent: "space-between",
     gap: 16,
     alignItems: "center",
-    boxShadow: "0 0 30px rgba(0,255,136,0.08)",
   },
   kicker: {
     color: "#00ff88",
@@ -436,10 +477,6 @@ const styles = {
     cursor: "pointer",
     fontWeight: "bold",
   },
-  navButtonActive: {
-    background: "#00aa55",
-    color: "#fff",
-  },
   main: {
     maxWidth: 1300,
     margin: "0 auto",
@@ -465,6 +502,13 @@ const styles = {
   statValue: {
     fontSize: 34,
     color: "#00ff88",
+  },
+  missionPanel: {
+    background: "rgba(10,18,13,0.9)",
+    border: "1px solid rgba(255,208,0,0.35)",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
   },
   centralGrid: {
     display: "grid",
@@ -522,11 +566,6 @@ const styles = {
     fontSize: 11,
     fontWeight: "bold",
   },
-  empty: {
-    padding: 20,
-    color: "#9cffc8",
-    textAlign: "center",
-  },
   driverPage: {
     maxWidth: 520,
     margin: "0 auto",
@@ -547,7 +586,7 @@ const styles = {
   },
   input: {
     width: "calc(100% - 32px)",
-    margin: "0 16px",
+    margin: "0 16px 12px",
     padding: 13,
     borderRadius: 10,
     background: "#080d09",
@@ -558,7 +597,7 @@ const styles = {
   },
   startButton: {
     width: "calc(100% - 32px)",
-    margin: "18px 16px 0",
+    margin: "10px 16px 0",
     padding: 15,
     borderRadius: 10,
     background: "#00aa55",
@@ -580,13 +619,12 @@ const styles = {
     cursor: "pointer",
     fontSize: 15,
   },
-  infoBox: {
+  missionAlert: {
     margin: 16,
-    padding: 12,
-    borderRadius: 10,
-    background: "rgba(0,255,136,0.08)",
-    border: "1px solid rgba(0,255,136,0.2)",
-    color: "#bfffd8",
-    fontSize: 13,
+    padding: 14,
+    borderRadius: 12,
+    background: "rgba(255,208,0,0.15)",
+    border: "1px solid #ffd000",
+    color: "#fff2a8",
   },
 };
