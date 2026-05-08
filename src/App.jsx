@@ -13,9 +13,6 @@ import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-const somMissao = new Audio("/sons/missao.mp3");
-const somApoio = new Audio("/sons/apoio.mp3");
-
 const firebaseConfig = {
   apiKey: "AIzaSyCCPNGSDVvbR6qSaPQDWfkj3Ts9BlO9ZQ8",
   authDomain: "operacao-capivara.firebaseapp.com",
@@ -54,6 +51,10 @@ export default function App() {
   const [carros, setCarros] = useState([]);
   const [missoes, setMissoes] = useState({});
 
+  const [alertasAtivos, setAlertasAtivos] = useState(() => {
+    return localStorage.getItem("alertasAtivos") === "true";
+  });
+
   const [motorista, setMotorista] = useState(() => {
     return localStorage.getItem("motorista") || "";
   });
@@ -77,6 +78,23 @@ export default function App() {
   const intervaloRef = useRef(null);
   const primeiraLeituraMissoesRef = useRef(true);
   const primeiraLeituraMissaoEquipeRef = useRef(true);
+  const ultimaMissaoEquipeRef = useRef(null);
+  const pedidosApoioAnterioresRef = useRef(new Set());
+
+  const somMissaoRef = useRef(null);
+  const somApoioRef = useRef(null);
+
+  useEffect(() => {
+    somMissaoRef.current = new Audio("/sons/missao.mp3");
+    somApoioRef.current = new Audio("/sons/apoio.mp3");
+
+    somMissaoRef.current.preload = "auto";
+    somApoioRef.current.preload = "auto";
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("alertasAtivos", alertasAtivos ? "true" : "false");
+  }, [alertasAtivos]);
 
   useEffect(() => {
     localStorage.setItem("motorista", motorista);
@@ -100,6 +118,7 @@ export default function App() {
         id: documento.id,
         ...documento.data(),
       }));
+
       setCarros(lista);
     });
 
@@ -109,19 +128,24 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "missoes"), (snapshot) => {
       const lista = {};
-      let existePedidoApoio = false;
+      const pedidosApoioAtuais = new Set();
+      let novoPedidoApoio = false;
 
       snapshot.docs.forEach((documento) => {
         const dados = documento.data();
         lista[documento.id] = dados;
 
         if (dados.statusOperacional === "🚨 Aguardando apoio") {
-          existePedidoApoio = true;
+          pedidosApoioAtuais.add(documento.id);
+
+          if (!pedidosApoioAnterioresRef.current.has(documento.id)) {
+            novoPedidoApoio = true;
+          }
         }
       });
 
-      if (!primeiraLeituraMissoesRef.current && existePedidoApoio) {
-        tocarSom(somApoio);
+      if (!primeiraLeituraMissoesRef.current && novoPedidoApoio) {
+        tocarSom(somApoioRef);
 
         if (navigator.vibrate) {
           navigator.vibrate([500, 300, 500, 300, 500]);
@@ -129,11 +153,12 @@ export default function App() {
       }
 
       primeiraLeituraMissoesRef.current = false;
+      pedidosApoioAnterioresRef.current = pedidosApoioAtuais;
       setMissoes(lista);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [alertasAtivos]);
 
   useEffect(() => {
     if (!idEquipe) return;
@@ -144,29 +169,68 @@ export default function App() {
       if (snapshot.exists()) {
         const dados = snapshot.data();
 
-        if (
-          !primeiraLeituraMissaoEquipeRef.current &&
-          (!missaoAtual || dados.enviadaEm !== missaoAtual.enviadaEm)
-        ) {
-          tocarSom(somMissao);
+        const missaoNova =
+          dados.enviadaEm && dados.enviadaEm !== ultimaMissaoEquipeRef.current;
+
+        if (!primeiraLeituraMissaoEquipeRef.current && missaoNova) {
+          tocarSom(somMissaoRef);
 
           if (navigator.vibrate) {
             navigator.vibrate([300, 200, 300]);
           }
         }
 
+        ultimaMissaoEquipeRef.current = dados.enviadaEm || null;
         primeiraLeituraMissaoEquipeRef.current = false;
         setMissaoAtual(dados);
       } else {
         primeiraLeituraMissaoEquipeRef.current = false;
+        ultimaMissaoEquipeRef.current = null;
         setMissaoAtual(null);
       }
     });
 
     return () => unsubscribe();
-  }, [idEquipe, missaoAtual]);
+  }, [idEquipe, alertasAtivos]);
 
-  function tocarSom(audio) {
+  async function ativarAlertas() {
+    try {
+      if (somMissaoRef.current) {
+        somMissaoRef.current.volume = 1;
+        await somMissaoRef.current.play();
+        somMissaoRef.current.pause();
+        somMissaoRef.current.currentTime = 0;
+      }
+
+      if (somApoioRef.current) {
+        somApoioRef.current.volume = 1;
+        await somApoioRef.current.play();
+        somApoioRef.current.pause();
+        somApoioRef.current.currentTime = 0;
+      }
+
+      if (navigator.vibrate) {
+        navigator.vibrate([150, 100, 150]);
+      }
+
+      setAlertasAtivos(true);
+      alert("Alertas ativados com sucesso!");
+    } catch (erro) {
+      console.log("Erro ao ativar alertas:", erro);
+      alert("Toque novamente em ATIVAR ALERTAS. O navegador bloqueou a primeira tentativa.");
+    }
+  }
+
+  function tocarSom(audioRef) {
+    if (!alertasAtivos) {
+      console.log("Alertas sonoros ainda não foram ativados.");
+      return;
+    }
+
+    const audio = audioRef.current;
+
+    if (!audio) return;
+
     audio.currentTime = 0;
     audio.play().catch((erro) => {
       console.log("Som bloqueado pelo navegador:", erro);
@@ -337,6 +401,16 @@ export default function App() {
 
         <div style={styles.nav}>
           <button
+            onClick={ativarAlertas}
+            style={{
+              ...styles.navButton,
+              ...(alertasAtivos ? styles.alertButtonActive : {}),
+            }}
+          >
+            {alertasAtivos ? "Alertas Ativos" : "Ativar Alertas"}
+          </button>
+
+          <button
             onClick={() => setTela("central")}
             style={{
               ...styles.navButton,
@@ -357,6 +431,12 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {!alertasAtivos && (
+        <section style={styles.alertasInfo}>
+          🔊 Toque em <b>ATIVAR ALERTAS</b> para liberar som e vibração no celular.
+        </section>
+      )}
 
       {tela === "central" && (
         <main style={styles.main}>
@@ -661,8 +741,8 @@ export default function App() {
             </button>
 
             <div style={styles.infoBox}>
-              O rastreamento só inicia após clicar em <b>INICIAR GPS</b> e pode
-              ser encerrado a qualquer momento.
+              O rastreamento só inicia após clicar em <b>INICIAR GPS</b>. Para
+              sons funcionarem no Android, toque em <b>ATIVAR ALERTAS</b>.
             </div>
           </section>
         </main>
@@ -721,6 +801,7 @@ const styles = {
   nav: {
     display: "flex",
     gap: 10,
+    flexWrap: "wrap",
   },
   navButton: {
     padding: "12px 18px",
@@ -734,6 +815,21 @@ const styles = {
   navButtonActive: {
     background: "#00aa55",
     color: "#fff",
+  },
+  alertButtonActive: {
+    background: "#ffd000",
+    color: "#061008",
+    border: "1px solid #ffd000",
+  },
+  alertasInfo: {
+    maxWidth: 1300,
+    margin: "0 auto 16px auto",
+    background: "rgba(255,208,0,0.12)",
+    border: "1px solid #ffd000",
+    color: "#fff2a8",
+    padding: 14,
+    borderRadius: 14,
+    textAlign: "center",
   },
   main: {
     maxWidth: 1300,
