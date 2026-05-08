@@ -54,10 +54,21 @@ export default function App() {
   const [carros, setCarros] = useState([]);
   const [missoes, setMissoes] = useState({});
 
-  const [motorista, setMotorista] = useState("");
-  const [copiloto, setCopiloto] = useState("");
-  const [identificador, setIdentificador] = useState("");
-  const [idEquipe, setIdEquipe] = useState("");
+  const [motorista, setMotorista] = useState(() => {
+    return localStorage.getItem("motorista") || "";
+  });
+
+  const [copiloto, setCopiloto] = useState(() => {
+    return localStorage.getItem("copiloto") || "";
+  });
+
+  const [identificador, setIdentificador] = useState(() => {
+    return localStorage.getItem("identificador") || "";
+  });
+
+  const [idEquipe, setIdEquipe] = useState(() => {
+    return localStorage.getItem("idEquipe") || "";
+  });
 
   const [missaoTexto, setMissaoTexto] = useState("");
   const [equipeMissao, setEquipeMissao] = useState("");
@@ -66,6 +77,22 @@ export default function App() {
   const intervaloRef = useRef(null);
   const primeiraLeituraMissoesRef = useRef(true);
   const primeiraLeituraMissaoEquipeRef = useRef(true);
+
+  useEffect(() => {
+    localStorage.setItem("motorista", motorista);
+  }, [motorista]);
+
+  useEffect(() => {
+    localStorage.setItem("copiloto", copiloto);
+  }, [copiloto]);
+
+  useEffect(() => {
+    localStorage.setItem("identificador", identificador);
+  }, [identificador]);
+
+  useEffect(() => {
+    localStorage.setItem("idEquipe", idEquipe);
+  }, [idEquipe]);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "carros"), (snapshot) => {
@@ -236,6 +263,27 @@ export default function App() {
     }
 
     alert("Rastreamento parado!");
+  }
+
+  function trocarEquipe() {
+    if (intervaloRef.current) {
+      clearInterval(intervaloRef.current);
+      intervaloRef.current = null;
+    }
+
+    localStorage.removeItem("motorista");
+    localStorage.removeItem("copiloto");
+    localStorage.removeItem("identificador");
+    localStorage.removeItem("idEquipe");
+
+    setMotorista("");
+    setCopiloto("");
+    setIdentificador("");
+    setIdEquipe("");
+    setMissaoAtual(null);
+    setStatus("Livre");
+
+    alert("Equipe limpa. Você pode cadastrar uma nova equipe.");
   }
 
   async function enviarMissao() {
@@ -608,6 +656,10 @@ export default function App() {
               PARAR GPS
             </button>
 
+            <button onClick={trocarEquipe} style={styles.neutralButton}>
+              TROCAR EQUIPE
+            </button>
+
             <div style={styles.infoBox}>
               O rastreamento só inicia após clicar em <b>INICIAR GPS</b> e pode
               ser encerrado a qualquer momento.
@@ -909,6 +961,18 @@ const styles = {
     background: "#d4a000",
     color: "#000",
     border: "none",
+    fontWeight: "bold",
+    cursor: "pointer",
+    fontSize: 15,
+  },
+  neutralButton: {
+    width: "calc(100% - 32px)",
+    margin: "10px 16px 0",
+    padding: 15,
+    borderRadius: 10,
+    background: "#26352b",
+    color: "#d8ffe8",
+    border: "1px solid rgba(0,255,136,0.35)",
     fontWeight: "bold",
     cursor: "pointer",
     fontSize: 15,
