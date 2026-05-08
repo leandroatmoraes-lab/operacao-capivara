@@ -25,9 +25,11 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-const iconeCarro = new L.Icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/744/744465.png",
-  iconSize: [34, 34],
+const iconeCapivara = new L.Icon({
+  iconUrl: "/capivara-192.png",
+  iconSize: [42, 42],
+  iconAnchor: [21, 42],
+  popupAnchor: [0, -38],
 });
 
 const coresStatus = {
@@ -51,25 +53,10 @@ export default function App() {
   const [carros, setCarros] = useState([]);
   const [missoes, setMissoes] = useState({});
 
-  const [alertasAtivos, setAlertasAtivos] = useState(() => {
-    return localStorage.getItem("alertasAtivos") === "true";
-  });
-
-  const [motorista, setMotorista] = useState(() => {
-    return localStorage.getItem("motorista") || "";
-  });
-
-  const [copiloto, setCopiloto] = useState(() => {
-    return localStorage.getItem("copiloto") || "";
-  });
-
-  const [identificador, setIdentificador] = useState(() => {
-    return localStorage.getItem("identificador") || "";
-  });
-
-  const [idEquipe, setIdEquipe] = useState(() => {
-    return localStorage.getItem("idEquipe") || "";
-  });
+  const [motorista, setMotorista] = useState(() => localStorage.getItem("motorista") || "");
+  const [copiloto, setCopiloto] = useState(() => localStorage.getItem("copiloto") || "");
+  const [identificador, setIdentificador] = useState(() => localStorage.getItem("identificador") || "");
+  const [idEquipe, setIdEquipe] = useState(() => localStorage.getItem("idEquipe") || "");
 
   const [missaoTexto, setMissaoTexto] = useState("");
   const [equipeMissao, setEquipeMissao] = useState("");
@@ -78,39 +65,13 @@ export default function App() {
   const intervaloRef = useRef(null);
   const primeiraLeituraMissoesRef = useRef(true);
   const primeiraLeituraMissaoEquipeRef = useRef(true);
-  const ultimaMissaoEquipeRef = useRef(null);
   const pedidosApoioAnterioresRef = useRef(new Set());
+  const ultimaMissaoEquipeRef = useRef(null);
 
-  const somMissaoRef = useRef(null);
-  const somApoioRef = useRef(null);
-
-  useEffect(() => {
-    somMissaoRef.current = new Audio("/sons/missao.mp3");
-    somApoioRef.current = new Audio("/sons/apoio.mp3");
-
-    somMissaoRef.current.preload = "auto";
-    somApoioRef.current.preload = "auto";
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("alertasAtivos", alertasAtivos ? "true" : "false");
-  }, [alertasAtivos]);
-
-  useEffect(() => {
-    localStorage.setItem("motorista", motorista);
-  }, [motorista]);
-
-  useEffect(() => {
-    localStorage.setItem("copiloto", copiloto);
-  }, [copiloto]);
-
-  useEffect(() => {
-    localStorage.setItem("identificador", identificador);
-  }, [identificador]);
-
-  useEffect(() => {
-    localStorage.setItem("idEquipe", idEquipe);
-  }, [idEquipe]);
+  useEffect(() => localStorage.setItem("motorista", motorista), [motorista]);
+  useEffect(() => localStorage.setItem("copiloto", copiloto), [copiloto]);
+  useEffect(() => localStorage.setItem("identificador", identificador), [identificador]);
+  useEffect(() => localStorage.setItem("idEquipe", idEquipe), [idEquipe]);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "carros"), (snapshot) => {
@@ -118,7 +79,6 @@ export default function App() {
         id: documento.id,
         ...documento.data(),
       }));
-
       setCarros(lista);
     });
 
@@ -145,8 +105,6 @@ export default function App() {
       });
 
       if (!primeiraLeituraMissoesRef.current && novoPedidoApoio) {
-        tocarSom(somApoioRef);
-
         if (navigator.vibrate) {
           navigator.vibrate([500, 300, 500, 300, 500]);
         }
@@ -158,7 +116,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [alertasAtivos]);
+  }, []);
 
   useEffect(() => {
     if (!idEquipe) return;
@@ -168,13 +126,10 @@ export default function App() {
     const unsubscribe = onSnapshot(doc(db, "missoes", idEquipe), (snapshot) => {
       if (snapshot.exists()) {
         const dados = snapshot.data();
-
         const missaoNova =
           dados.enviadaEm && dados.enviadaEm !== ultimaMissaoEquipeRef.current;
 
         if (!primeiraLeituraMissaoEquipeRef.current && missaoNova) {
-          tocarSom(somMissaoRef);
-
           if (navigator.vibrate) {
             navigator.vibrate([300, 200, 300]);
           }
@@ -191,51 +146,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [idEquipe, alertasAtivos]);
-
-  async function ativarAlertas() {
-    try {
-      if (somMissaoRef.current) {
-        somMissaoRef.current.volume = 1;
-        await somMissaoRef.current.play();
-        somMissaoRef.current.pause();
-        somMissaoRef.current.currentTime = 0;
-      }
-
-      if (somApoioRef.current) {
-        somApoioRef.current.volume = 1;
-        await somApoioRef.current.play();
-        somApoioRef.current.pause();
-        somApoioRef.current.currentTime = 0;
-      }
-
-      if (navigator.vibrate) {
-        navigator.vibrate([150, 100, 150]);
-      }
-
-      setAlertasAtivos(true);
-      alert("Alertas ativados com sucesso!");
-    } catch (erro) {
-      console.log("Erro ao ativar alertas:", erro);
-      alert("Toque novamente em ATIVAR ALERTAS. O navegador bloqueou a primeira tentativa.");
-    }
-  }
-
-  function tocarSom(audioRef) {
-    if (!alertasAtivos) {
-      console.log("Alertas sonoros ainda não foram ativados.");
-      return;
-    }
-
-    const audio = audioRef.current;
-
-    if (!audio) return;
-
-    audio.currentTime = 0;
-    audio.play().catch((erro) => {
-      console.log("Som bloqueado pelo navegador:", erro);
-    });
-  }
+  }, [idEquipe]);
 
   function gerarIdEquipe() {
     const nomeBase = motorista
@@ -272,8 +183,6 @@ export default function App() {
           online: true,
           atualizado: new Date().toISOString(),
         });
-
-        console.log("Localização enviada:", idAtual);
       },
       (erro) => {
         console.log(erro);
@@ -401,16 +310,6 @@ export default function App() {
 
         <div style={styles.nav}>
           <button
-            onClick={ativarAlertas}
-            style={{
-              ...styles.navButton,
-              ...(alertasAtivos ? styles.alertButtonActive : {}),
-            }}
-          >
-            {alertasAtivos ? "Alertas Ativos" : "Ativar Alertas"}
-          </button>
-
-          <button
             onClick={() => setTela("central")}
             style={{
               ...styles.navButton,
@@ -431,12 +330,6 @@ export default function App() {
           </button>
         </div>
       </header>
-
-      {!alertasAtivos && (
-        <section style={styles.alertasInfo}>
-          🔊 Toque em <b>ATIVAR ALERTAS</b> para liberar som e vibração no celular.
-        </section>
-      )}
 
       {tela === "central" && (
         <main style={styles.main}>
@@ -505,130 +398,63 @@ export default function App() {
             </button>
           </section>
 
-          <section style={styles.centralGrid}>
-            <div style={styles.mapPanel}>
-              <div style={styles.panelHeader}>
-                <strong>Mapa operacional</strong>
-                <span>Blumenau / SC</span>
-              </div>
-
-              <div style={styles.mapBox}>
-                <MapContainer
-                  center={[-26.9167, -49.0667]}
-                  zoom={13}
-                  style={{ height: "100%", width: "100%" }}
-                >
-                  <TileLayer
-                    attribution="&copy; OpenStreetMap"
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
-
-                  {carros.map((carro) =>
-                    carro.latitude && carro.longitude ? (
-                      <Marker
-                        key={carro.id}
-                        position={[carro.latitude, carro.longitude]}
-                        icon={iconeCarro}
-                      >
-                        <Popup>
-                          <strong>{carro.motorista}</strong>
-                          <br />
-                          Copiloto: {carro.copiloto || "Não informado"}
-                          <br />
-                          Veículo: {carro.identificador || "Sem identificação"}
-                          <br />
-                          Status: {carro.status}
-                          <br />
-                          Missão:{" "}
-                          {missoes[carro.id]?.statusOperacional || "Sem missão"}
-                          <br />
-                          Atualizado: {formatarData(carro.atualizado)}
-                        </Popup>
-                      </Marker>
-                    ) : null
-                  )}
-                </MapContainer>
-              </div>
+          <section style={styles.mapPanelFull}>
+            <div style={styles.panelHeader}>
+              <strong>Mapa operacional</strong>
+              <span>Blumenau / SC — clique na capivara para detalhes</span>
             </div>
 
-            <aside style={styles.listPanel}>
-              <div style={styles.panelHeader}>
-                <strong>Equipes no radar</strong>
-                <span>{carros.length} registros</span>
-              </div>
-
-              <div style={styles.teamList}>
-                {carros.length === 0 && (
-                  <div style={styles.empty}>Nenhuma equipe rastreada.</div>
-                )}
+            <div style={styles.mapBoxFull}>
+              <MapContainer
+                center={[-26.9167, -49.0667]}
+                zoom={13}
+                style={{ height: "100%", width: "100%" }}
+              >
+                <TileLayer
+                  attribution="&copy; OpenStreetMap"
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
 
                 {carros.map((carro) => {
                   const missao = missoes[carro.id];
 
-                  return (
-                    <div
+                  return carro.latitude && carro.longitude ? (
+                    <Marker
                       key={carro.id}
-                      style={{
-                        ...styles.teamCard,
-                        borderColor:
-                          missao?.statusOperacional === "🚨 Aguardando apoio"
-                            ? "#ff3333"
-                            : coresStatus[carro.status] || "#00ff88",
-                        opacity: carro.online ? 1 : 0.55,
-                      }}
+                      position={[carro.latitude, carro.longitude]}
+                      icon={iconeCapivara}
                     >
-                      <div style={styles.teamTop}>
-                        <strong>{carro.motorista || "Sem nome"}</strong>
-                        <span
-                          style={{
-                            ...styles.badge,
-                            background:
-                              missao?.statusOperacional === "🚨 Aguardando apoio"
-                                ? "#ff3333"
-                                : coresStatus[carro.status] || "#00ff88",
-                          }}
-                        >
-                          {missao?.statusOperacional === "🚨 Aguardando apoio"
-                            ? "APOIO"
-                            : carro.status || "Sem status"}
-                        </span>
-                      </div>
-
-                      <p>Copiloto: {carro.copiloto || "Não informado"}</p>
-                      <p>Veículo: {carro.identificador || "Sem identificação"}</p>
-                      <p>Online: {carro.online ? "Sim" : "Não"}</p>
-
-                      {missao ? (
-                        <div
-                          style={{
-                            ...styles.missionMini,
-                            borderColor:
-                              coresMissao[missao.statusOperacional] || "#ffd000",
-                          }}
-                        >
-                          <b>Missão:</b> {missao.texto}
+                      <Popup>
+                        <div style={{ minWidth: 220 }}>
+                          <strong>{carro.motorista || "Sem motorista"}</strong>
                           <br />
-                          <b>Status:</b>{" "}
-                          <span
-                            style={{
-                              color:
-                                coresMissao[missao.statusOperacional] ||
-                                "#ffd000",
-                            }}
-                          >
-                            {missao.statusOperacional}
-                          </span>
+                          <b>Copiloto:</b> {carro.copiloto || "Não informado"}
+                          <br />
+                          <b>Veículo:</b>{" "}
+                          {carro.identificador || "Sem identificação"}
+                          <br />
+                          <b>Status:</b> {carro.status || "Sem status"}
+                          <br />
+                          <b>Online:</b> {carro.online ? "Sim" : "Não"}
+                          <br />
+                          <br />
+                          <b>Missão:</b>{" "}
+                          {missao?.texto || "Sem missão ativa"}
+                          <br />
+                          <b>Status da missão:</b>{" "}
+                          {missao?.statusOperacional || "Sem status"}
+                          <br />
+                          <br />
+                          <small>
+                            Atualizado: {formatarData(carro.atualizado)}
+                          </small>
                         </div>
-                      ) : (
-                        <div style={styles.noMission}>Sem missão ativa</div>
-                      )}
-
-                      <small>Atualizado: {formatarData(carro.atualizado)}</small>
-                    </div>
-                  );
+                      </Popup>
+                    </Marker>
+                  ) : null;
                 })}
-              </div>
-            </aside>
+              </MapContainer>
+            </div>
           </section>
         </main>
       )}
@@ -741,8 +567,8 @@ export default function App() {
             </button>
 
             <div style={styles.infoBox}>
-              O rastreamento só inicia após clicar em <b>INICIAR GPS</b>. Para
-              sons funcionarem no Android, toque em <b>ATIVAR ALERTAS</b>.
+              O rastreamento só inicia após clicar em <b>INICIAR GPS</b>. Alertas
+              importantes usam vibração no celular.
             </div>
           </section>
         </main>
@@ -816,21 +642,6 @@ const styles = {
     background: "#00aa55",
     color: "#fff",
   },
-  alertButtonActive: {
-    background: "#ffd000",
-    color: "#061008",
-    border: "1px solid #ffd000",
-  },
-  alertasInfo: {
-    maxWidth: 1300,
-    margin: "0 auto 16px auto",
-    background: "rgba(255,208,0,0.12)",
-    border: "1px solid #ffd000",
-    color: "#fff2a8",
-    padding: 14,
-    borderRadius: 14,
-    textAlign: "center",
-  },
   main: {
     maxWidth: 1300,
     margin: "0 auto",
@@ -881,18 +692,7 @@ const styles = {
     marginBottom: 12,
     color: "#fff",
   },
-  centralGrid: {
-    display: "grid",
-    gridTemplateColumns: "2fr 1fr",
-    gap: 16,
-  },
-  mapPanel: {
-    background: "rgba(10,18,13,0.9)",
-    border: "1px solid rgba(0,255,136,0.25)",
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  listPanel: {
+  mapPanelFull: {
     background: "rgba(10,18,13,0.9)",
     border: "1px solid rgba(0,255,136,0.25)",
     borderRadius: 16,
@@ -907,59 +707,9 @@ const styles = {
     borderBottom: "1px solid rgba(0,255,136,0.2)",
     color: "#ffffff",
   },
-  mapBox: {
-    height: 560,
-  },
-  teamList: {
-    padding: 12,
-    maxHeight: 560,
-    overflowY: "auto",
-  },
-  teamCard: {
-    background: "#111a14",
-    border: "1px solid #00ff88",
-    borderLeft: "6px solid #00ff88",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-  },
-  teamTop: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 8,
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  badge: {
-    color: "#061008",
-    padding: "4px 8px",
-    borderRadius: 999,
-    fontSize: 11,
-    fontWeight: "bold",
-  },
-  missionMini: {
-    marginTop: 10,
-    marginBottom: 10,
-    padding: 10,
-    borderRadius: 10,
-    background: "rgba(255,208,0,0.08)",
-    border: "1px solid #ffd000",
-    fontSize: 13,
-  },
-  noMission: {
-    marginTop: 10,
-    marginBottom: 10,
-    padding: 10,
-    borderRadius: 10,
-    background: "rgba(255,255,255,0.04)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    color: "#9cffc8",
-    fontSize: 13,
-  },
-  empty: {
-    padding: 20,
-    color: "#9cffc8",
-    textAlign: "center",
+  mapBoxFull: {
+    height: "68vh",
+    minHeight: 520,
   },
   driverPage: {
     maxWidth: 520,
