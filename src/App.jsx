@@ -13,6 +13,9 @@ import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
+const somMissao = new Audio("/sons/missao.mp3");
+const somApoio = new Audio("/sons/apoio.mp3");
+
 const firebaseConfig = {
   apiKey: "AIzaSyCCPNGSDVvbR6qSaPQDWfkj3Ts9BlO9ZQ8",
   authDomain: "operacao-capivara.firebaseapp.com",
@@ -61,6 +64,8 @@ export default function App() {
   const [missaoAtual, setMissaoAtual] = useState(null);
 
   const intervaloRef = useRef(null);
+  const primeiraLeituraMissoesRef = useRef(true);
+  const primeiraLeituraMissaoEquipeRef = useRef(true);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "carros"), (snapshot) => {
@@ -77,9 +82,26 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "missoes"), (snapshot) => {
       const lista = {};
+      let existePedidoApoio = false;
+
       snapshot.docs.forEach((documento) => {
-        lista[documento.id] = documento.data();
+        const dados = documento.data();
+        lista[documento.id] = dados;
+
+        if (dados.statusOperacional === "🚨 Aguardando apoio") {
+          existePedidoApoio = true;
+        }
       });
+
+      if (!primeiraLeituraMissoesRef.current && existePedidoApoio) {
+        tocarSom(somApoio);
+
+        if (navigator.vibrate) {
+          navigator.vibrate([500, 300, 500, 300, 500]);
+        }
+      }
+
+      primeiraLeituraMissoesRef.current = false;
       setMissoes(lista);
     });
 
@@ -89,16 +111,40 @@ export default function App() {
   useEffect(() => {
     if (!idEquipe) return;
 
+    primeiraLeituraMissaoEquipeRef.current = true;
+
     const unsubscribe = onSnapshot(doc(db, "missoes", idEquipe), (snapshot) => {
       if (snapshot.exists()) {
-        setMissaoAtual(snapshot.data());
+        const dados = snapshot.data();
+
+        if (
+          !primeiraLeituraMissaoEquipeRef.current &&
+          (!missaoAtual || dados.enviadaEm !== missaoAtual.enviadaEm)
+        ) {
+          tocarSom(somMissao);
+
+          if (navigator.vibrate) {
+            navigator.vibrate([300, 200, 300]);
+          }
+        }
+
+        primeiraLeituraMissaoEquipeRef.current = false;
+        setMissaoAtual(dados);
       } else {
+        primeiraLeituraMissaoEquipeRef.current = false;
         setMissaoAtual(null);
       }
     });
 
     return () => unsubscribe();
-  }, [idEquipe]);
+  }, [idEquipe, missaoAtual]);
+
+  function tocarSom(audio) {
+    audio.currentTime = 0;
+    audio.play().catch((erro) => {
+      console.log("Som bloqueado pelo navegador:", erro);
+    });
+  }
 
   function gerarIdEquipe() {
     const nomeBase = motorista
@@ -294,6 +340,12 @@ export default function App() {
             </div>
           </section>
 
+          {apoio > 0 && (
+            <section style={styles.alertApoio}>
+              🚨 ATENÇÃO: existe equipe aguardando apoio imediato!
+            </section>
+          )}
+
           <section style={styles.missionPanel}>
             <div style={styles.panelHeaderClean}>
               <strong>Enviar missão</strong>
@@ -390,7 +442,10 @@ export default function App() {
                       key={carro.id}
                       style={{
                         ...styles.teamCard,
-                        borderColor: coresStatus[carro.status] || "#00ff88",
+                        borderColor:
+                          missao?.statusOperacional === "🚨 Aguardando apoio"
+                            ? "#ff3333"
+                            : coresStatus[carro.status] || "#00ff88",
                         opacity: carro.online ? 1 : 0.55,
                       }}
                     >
@@ -399,10 +454,15 @@ export default function App() {
                         <span
                           style={{
                             ...styles.badge,
-                            background: coresStatus[carro.status] || "#00ff88",
+                            background:
+                              missao?.statusOperacional === "🚨 Aguardando apoio"
+                                ? "#ff3333"
+                                : coresStatus[carro.status] || "#00ff88",
                           }}
                         >
-                          {carro.status || "Sem status"}
+                          {missao?.statusOperacional === "🚨 Aguardando apoio"
+                            ? "APOIO"
+                            : carro.status || "Sem status"}
                         </span>
                       </div>
 
@@ -648,6 +708,17 @@ const styles = {
   statValue: {
     fontSize: 34,
     color: "#00ff88",
+  },
+  alertApoio: {
+    maxWidth: 1300,
+    margin: "0 auto 16px auto",
+    background: "rgba(255,51,51,0.18)",
+    border: "1px solid #ff3333",
+    color: "#ffd6d6",
+    padding: 16,
+    borderRadius: 14,
+    fontWeight: "bold",
+    textAlign: "center",
   },
   missionPanel: {
     background: "rgba(10,18,13,0.9)",
