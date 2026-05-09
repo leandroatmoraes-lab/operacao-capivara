@@ -8,6 +8,13 @@ import {
   collection,
   onSnapshot,
 } from "firebase/firestore";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+} from "firebase/auth";
 
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
@@ -24,6 +31,8 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
 
 const coresStatus = {
   Livre: "#00ff88",
@@ -84,6 +93,8 @@ export default function App() {
   const [carros, setCarros] = useState([]);
   const [missoes, setMissoes] = useState({});
   const [agora, setAgora] = useState(Date.now());
+  const [usuario, setUsuario] = useState(null);
+  const [carregandoLogin, setCarregandoLogin] = useState(true);
 
   const [motorista, setMotorista] = useState(
     () => localStorage.getItem("motorista") || ""
@@ -106,6 +117,15 @@ export default function App() {
   const [missaoAtual, setMissaoAtual] = useState(null);
 
   const intervaloRef = useRef(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUsuario(user);
+      setCarregandoLogin(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => localStorage.setItem("motorista", motorista), [motorista]);
   useEffect(() => localStorage.setItem("copiloto", copiloto), [copiloto]);
@@ -167,6 +187,24 @@ export default function App() {
 
     return () => unsubscribe();
   }, [idEquipe]);
+
+  async function entrarComGoogle() {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (erro) {
+      console.log("Erro no login:", erro);
+      alert("Não foi possível entrar com Google.");
+    }
+  }
+
+  async function sairDaConta() {
+    try {
+      await signOut(auth);
+    } catch (erro) {
+      console.log("Erro ao sair:", erro);
+      alert("Não foi possível sair da conta.");
+    }
+  }
 
   function gerarIdEquipe() {
     const nomeBase = copiloto || motorista || "equipe";
@@ -556,6 +594,35 @@ export default function App() {
     missaoAtual.statusOperacional !== "Concluída" &&
     missaoAtual.statusOperacional !== "Recusada";
 
+  if (carregandoLogin) {
+    return (
+      <div style={styles.loginPage}>
+        <div style={styles.loginCard}>
+          <h1 style={styles.title}>OPERAÇÃO CAPIVARA</h1>
+          <p>Carregando acesso...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!usuario) {
+    return (
+      <div style={styles.loginPage}>
+        <div style={styles.loginCard}>
+          <div style={styles.kicker}>ACESSO RESTRITO</div>
+          <h1 style={styles.title}>OPERAÇÃO CAPIVARA</h1>
+          <p style={styles.loginText}>
+            Entre com sua conta Google para acessar a Central Operacional.
+          </p>
+
+          <button onClick={entrarComGoogle} style={styles.loginButton}>
+            ENTRAR COM GOOGLE
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.app}>
       <style>
@@ -576,6 +643,15 @@ export default function App() {
         </div>
 
         <div style={styles.nav}>
+          <div style={styles.userBox}>
+            <span>{usuario.displayName || "Usuário"}</span>
+            <small>{usuario.email}</small>
+          </div>
+
+          <button onClick={sairDaConta} style={styles.logoutButton}>
+            Sair
+          </button>
+
           <button
             onClick={() => setTela("central")}
             style={{
@@ -979,6 +1055,63 @@ function formatarData(valor) {
 }
 
 const styles = {
+  loginPage: {
+    background:
+      "radial-gradient(circle at top, #17351f 0%, #0b0f0d 38%, #050705 100%)",
+    minHeight: "100vh",
+    color: "#d8ffe8",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 18,
+    fontFamily: "Arial, sans-serif",
+  },
+  loginCard: {
+    width: "100%",
+    maxWidth: 430,
+    background: "rgba(10,18,13,0.92)",
+    border: "1px solid rgba(0,255,136,0.35)",
+    borderRadius: 18,
+    padding: 24,
+    textAlign: "center",
+    boxShadow: "0 0 30px rgba(0,255,136,0.08)",
+  },
+  loginText: {
+    color: "#bfffd8",
+    lineHeight: 1.5,
+    marginBottom: 22,
+  },
+  loginButton: {
+    width: "100%",
+    padding: 15,
+    borderRadius: 10,
+    background: "#00aa55",
+    color: "#fff",
+    border: "none",
+    fontWeight: "bold",
+    cursor: "pointer",
+    fontSize: 15,
+  },
+  userBox: {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    color: "#d8ffe8",
+    fontSize: 13,
+    border: "1px solid rgba(0,255,136,0.25)",
+    borderRadius: 10,
+    padding: "8px 12px",
+    background: "#101812",
+  },
+  logoutButton: {
+    padding: "12px 18px",
+    borderRadius: 10,
+    border: "1px solid rgba(255,51,51,0.45)",
+    background: "#301111",
+    color: "#ffd6d6",
+    cursor: "pointer",
+    fontWeight: "bold",
+  },
   app: {
     background:
       "radial-gradient(circle at top, #17351f 0%, #0b0f0d 38%, #050705 100%)",
