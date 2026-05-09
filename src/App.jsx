@@ -5,6 +5,7 @@ import {
   doc,
   setDoc,
   updateDoc,
+  deleteDoc,
   collection,
   onSnapshot,
 } from "firebase/firestore";
@@ -32,18 +33,14 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-const provider = new GoogleAuthProvider();
+const googleProvider = new GoogleAuthProvider();
 
-// TROQUE PELO SEU E-MAIL GOOGLE PRINCIPAL.
-// Esse usuário nunca poderá ser bloqueado, removido ou rebaixado pelo painel.
+/*
+  IMPORTANTE:
+  Troque pelo e-mail Google do LOGIN MESTRE.
+  O mestre nunca pode ser removido, bloqueado ou rebaixado pelo painel.
+*/
 const emailMestre = "leandro.atmoraes@gmail.com";
-
-const funcoes = {
-  mestre: "Mestre",
-  admin: "Coordenador/Admin",
-  operador: "Operador",
-  carro: "Carro",
-};
 
 const coresStatus = {
   Livre: "#00ff88",
@@ -54,6 +51,10 @@ const coresStatus = {
   Emergência: "#ff0033",
   Offline: "#777",
 };
+
+function normalizarEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
 
 function criarIconeCapivara(status, nivelSinal) {
   const corBase = coresStatus[status] || "#00ff88";
@@ -99,21 +100,15 @@ function criarIconeCapivara(status, nivelSinal) {
   });
 }
 
-function normalizarEmail(email) {
-  return String(email || "").trim().toLowerCase();
-}
-
 export default function App() {
   const [usuario, setUsuario] = useState(null);
-  const [carregandoAuth, setCarregandoAuth] = useState(true);
+  const [carregandoLogin, setCarregandoLogin] = useState(true);
   const [perfilUsuario, setPerfilUsuario] = useState(null);
-  const [usuariosCadastrados, setUsuariosCadastrados] = useState([]);
-  const [novoEmail, setNovoEmail] = useState("");
-  const [novaFuncao, setNovaFuncao] = useState("carro");
 
   const [tela, setTela] = useState("central");
   const [carros, setCarros] = useState([]);
   const [missoes, setMissoes] = useState({});
+  const [usuarios, setUsuarios] = useState([]);
   const [agora, setAgora] = useState(Date.now());
 
   const [motorista, setMotorista] = useState(
@@ -132,64 +127,64 @@ export default function App() {
   const [equipeMissao, setEquipeMissao] = useState("");
   const [missaoTexto, setMissaoTexto] = useState("");
   const [destinoMissao, setDestinoMissao] = useState("");
-  const [setorMissao, setSetorMissao] = useState("");
 
   const [missaoAtual, setMissaoAtual] = useState(null);
+
+  const [novoEmail, setNovoEmail] = useState("");
+  const [novaFuncao, setNovaFuncao] = useState("carro");
+
+  const [nomeEmergencia, setNomeEmergencia] = useState("");
+  const [telefoneEmergencia, setTelefoneEmergencia] = useState("");
 
   const intervaloRef = useRef(null);
 
   const emailUsuario = normalizarEmail(usuario?.email);
   const emailMestreNormalizado = normalizarEmail(emailMestre);
   const ehMestre = emailUsuario && emailUsuario === emailMestreNormalizado;
-  const funcaoAtual = ehMestre ? "mestre" : perfilUsuario?.funcao;
-  const usuarioAtivo = ehMestre || perfilUsuario?.ativo === true;
-  const podeAcessarCentral = ["mestre", "admin", "operador"].includes(funcaoAtual);
-  const podeGerenciarUsuarios = funcaoAtual === "mestre";
+  const funcao = ehMestre ? "mestre" : perfilUsuario?.funcao || null;
+  const acessoAtivo = ehMestre || perfilUsuario?.ativo === true;
+
+  const podeVerCentral =
+    acessoAtivo && ["mestre", "admin", "operador"].includes(funcao);
+  const podeGerenciarUsuarios = acessoAtivo && ehMestre;
+  const podeUsarPainelCarro = acessoAtivo && ["mestre", "admin", "operador", "carro"].includes(funcao);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUsuario(user);
-      setCarregandoAuth(false);
-    });
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setUsuario(user || null);
+      setCarregandoLogin(false);
 
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!usuario) {
-      setPerfilUsuario(null);
-      return;
-    }
-
-    const email = normalizarEmail(usuario.email);
-
-    if (email === emailMestreNormalizado) {
-      setPerfilUsuario({
-        email,
-        funcao: "mestre",
-        ativo: true,
-        conviteAceito: true,
-      });
-      return;
-    }
-
-    const unsubscribe = onSnapshot(doc(db, "usuarios", email), async (snapshot) => {
-      if (!snapshot.exists()) {
+      if (!user) {
         setPerfilUsuario(null);
         return;
       }
 
-      const dados = snapshot.data();
-      setPerfilUsuario(dados);
+      const email = normalizarEmail(user.email);
 
-      if (dados.ativo) {
+      if (email === emailMestreNormalizado) {
         await setDoc(
           doc(db, "usuarios", email),
           {
+            email,
+            nome: user.displayName || "Mestre",
+            foto: user.photoURL || "",
+            funcao: "mestre",
+            ativo: true,
+            mestre: true,
             ultimoLogin: new Date().toISOString(),
-            conviteAceito: true,
-            nome: usuario.displayName || "",
-            foto: usuario.photoURL || "",
+            atualizadoEm: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } else {
+        await setDoc(
+          doc(db, "usuarios", email),
+          {
+            email,
+            nome: user.displayName || "",
+            foto: user.photoURL || "",
+            ultimoLogin: new Date().toISOString(),
+            atualizadoEm: new Date().toISOString(),
           },
           { merge: true }
         );
@@ -197,27 +192,53 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [usuario, emailMestreNormalizado]);
+  }, []);
+
+  useEffect(() => {
+    if (!usuario?.email) return;
+
+    const email = normalizarEmail(usuario.email);
+    const unsubscribe = onSnapshot(doc(db, "usuarios", email), (snapshot) => {
+      if (snapshot.exists()) {
+        setPerfilUsuario(snapshot.data());
+      } else {
+        setPerfilUsuario(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [usuario]);
 
   useEffect(() => {
     if (!podeGerenciarUsuarios) return;
 
     const unsubscribe = onSnapshot(collection(db, "usuarios"), (snapshot) => {
       const lista = snapshot.docs
-        .map((documento) => ({ id: documento.id, ...documento.data() }))
+        .map((documento) => ({
+          id: documento.id,
+          ...documento.data(),
+        }))
         .sort((a, b) => String(a.email).localeCompare(String(b.email)));
 
-      setUsuariosCadastrados(lista);
+      setUsuarios(lista);
     });
 
     return () => unsubscribe();
   }, [podeGerenciarUsuarios]);
 
   useEffect(() => {
-    if (!carregandoAuth && usuario && !podeAcessarCentral && tela === "central") {
-      setTela("carro");
-    }
-  }, [carregandoAuth, usuario, podeAcessarCentral, tela]);
+    if (!acessoAtivo) return;
+
+    const unsubscribe = onSnapshot(doc(db, "configuracoes", "emergencia"), (snapshot) => {
+      if (snapshot.exists()) {
+        const dados = snapshot.data();
+        setNomeEmergencia(dados.nome || "");
+        setTelefoneEmergencia(dados.telefone || "");
+      }
+    });
+
+    return () => unsubscribe();
+  }, [acessoAtivo]);
 
   useEffect(() => localStorage.setItem("motorista", motorista), [motorista]);
   useEffect(() => localStorage.setItem("copiloto", copiloto), [copiloto]);
@@ -236,7 +257,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!usuarioAtivo) return;
+    if (!acessoAtivo) return;
 
     const unsubscribe = onSnapshot(collection(db, "carros"), (snapshot) => {
       const lista = snapshot.docs.map((documento) => ({
@@ -248,10 +269,10 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [usuarioAtivo]);
+  }, [acessoAtivo]);
 
   useEffect(() => {
-    if (!usuarioAtivo) return;
+    if (!acessoAtivo) return;
 
     const unsubscribe = onSnapshot(collection(db, "missoes"), (snapshot) => {
       const lista = {};
@@ -264,10 +285,10 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [usuarioAtivo]);
+  }, [acessoAtivo]);
 
   useEffect(() => {
-    if (!idEquipe || !usuarioAtivo) return;
+    if (!idEquipe || !acessoAtivo) return;
 
     const unsubscribe = onSnapshot(doc(db, "missoes", idEquipe), (snapshot) => {
       if (snapshot.exists()) {
@@ -282,112 +303,35 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [idEquipe, usuarioAtivo]);
+  }, [idEquipe, acessoAtivo]);
+
+  useEffect(() => {
+    if (carregandoLogin || !usuario) return;
+
+    if (!acessoAtivo) {
+      setTela("bloqueado");
+      return;
+    }
+
+    if (!podeVerCentral && podeUsarPainelCarro) {
+      setTela("carro");
+    }
+  }, [carregandoLogin, usuario, acessoAtivo, podeVerCentral, podeUsarPainelCarro]);
 
   async function loginGoogle() {
     try {
-      await signInWithPopup(auth, provider);
+      await signInWithPopup(auth, googleProvider);
     } catch (erro) {
       console.log(erro);
-      alert("Erro ao entrar com Google. Verifique o Firebase Authentication e o domínio autorizado.");
+      alert("Erro ao fazer login com Google.");
     }
   }
 
   async function sair() {
     await signOut(auth);
-  }
-
-  async function adicionarUsuario() {
-    const email = normalizarEmail(novoEmail);
-
-    if (!email) {
-      alert("Informe o e-mail do usuário.");
-      return;
-    }
-
-    if (email === emailMestreNormalizado) {
-      alert("O usuário mestre já possui acesso total permanente.");
-      return;
-    }
-
-    await setDoc(
-      doc(db, "usuarios", email),
-      {
-        email,
-        funcao: novaFuncao,
-        ativo: true,
-        conviteAceito: false,
-        criadoEm: new Date().toISOString(),
-        criadoPor: emailUsuario,
-      },
-      { merge: true }
-    );
-
-    setNovoEmail("");
-    setNovaFuncao("carro");
-
-    alert("Usuário adicionado. Envie o convite para ele acessar com a conta Google.");
-  }
-
-  async function alterarFuncaoUsuario(email, novaFuncaoUsuario) {
-    const emailNormalizado = normalizarEmail(email);
-
-    if (emailNormalizado === emailMestreNormalizado) {
-      alert("O usuário mestre não pode ter a função alterada.");
-      return;
-    }
-
-    await setDoc(
-      doc(db, "usuarios", emailNormalizado),
-      {
-        funcao: novaFuncaoUsuario,
-        atualizadoEm: new Date().toISOString(),
-        atualizadoPor: emailUsuario,
-      },
-      { merge: true }
-    );
-  }
-
-  async function bloquearUsuario(email) {
-    const emailNormalizado = normalizarEmail(email);
-
-    if (emailNormalizado === emailMestreNormalizado) {
-      alert("O usuário mestre não pode ser bloqueado.");
-      return;
-    }
-
-    await setDoc(
-      doc(db, "usuarios", emailNormalizado),
-      {
-        ativo: false,
-        bloqueadoEm: new Date().toISOString(),
-        bloqueadoPor: emailUsuario,
-      },
-      { merge: true }
-    );
-  }
-
-  async function reativarUsuario(email) {
-    const emailNormalizado = normalizarEmail(email);
-
-    await setDoc(
-      doc(db, "usuarios", emailNormalizado),
-      {
-        ativo: true,
-        reativadoEm: new Date().toISOString(),
-        reativadoPor: emailUsuario,
-      },
-      { merge: true }
-    );
-  }
-
-  function abrirConviteEmail(email, funcao) {
-    const assunto = encodeURIComponent("Convite para acessar a Operação Capivara");
-    const corpo = encodeURIComponent(
-      `Olá,\n\nVocê foi adicionado à plataforma Operação Capivara.\n\nFunção atribuída: ${funcoes[funcao] || funcao}\n\nPara ativar seu acesso, entre com sua conta Google no link abaixo:\n\nhttps://operacao-capivara.vercel.app\n\nApós o primeiro login seu acesso será validado automaticamente.\n\nEquipe Operação Capivara`
-    );
-
-    window.open(`mailto:${email}?subject=${assunto}&body=${corpo}`, "_blank");
+    setUsuario(null);
+    setPerfilUsuario(null);
+    setTela("central");
   }
 
   function gerarIdEquipe() {
@@ -400,6 +344,20 @@ export default function App() {
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9-]/g, "")}-${Date.now()}`;
+  }
+
+  function statusAtualDoCarro(idAtual) {
+    const missao = missoes[idAtual];
+
+    if (missao?.statusOperacional === "Solicitado") return "Solicitado";
+    if (missao?.statusOperacional === "Em deslocamento") return "Em deslocamento";
+    if (missao?.statusOperacional === "Em missão") return "Em missão";
+    if (missao?.statusOperacional === "Apoio solicitado") return "Apoio solicitado";
+
+    const carro = carros.find((c) => c.id === idAtual);
+    if (carro?.status === "Emergência") return "Emergência";
+
+    return "Livre";
   }
 
   function enviarLocalizacao(idAtual, statusAtual = "Livre") {
@@ -462,19 +420,7 @@ export default function App() {
     }
 
     intervaloRef.current = setInterval(() => {
-      const missao = missoes[idAtual];
-      const statusAtual =
-        missao?.statusOperacional === "Solicitado"
-          ? "Solicitado"
-          : missao?.statusOperacional === "Em deslocamento"
-          ? "Em deslocamento"
-          : missao?.statusOperacional === "Em missão"
-          ? "Em missão"
-          : missao?.statusOperacional === "Apoio solicitado"
-          ? "Apoio solicitado"
-          : "Livre";
-
-      enviarLocalizacao(idAtual, statusAtual);
+      enviarLocalizacao(idAtual, statusAtualDoCarro(idAtual));
     }, 15000);
 
     alert("Operação iniciada. Status: Livre");
@@ -549,7 +495,6 @@ export default function App() {
     await setDoc(doc(db, "missoes", equipeMissao), {
       texto: missaoTexto.trim(),
       destino: destinoMissao.trim(),
-      setor: setorMissao.trim(),
       statusOperacional: "Solicitado",
       enviadaEm: agoraISO,
       atualizadoEm: agoraISO,
@@ -566,7 +511,6 @@ export default function App() {
 
     setMissaoTexto("");
     setDestinoMissao("");
-    setSetorMissao("");
 
     alert("Solicitação enviada para o carro!");
   }
@@ -615,7 +559,6 @@ export default function App() {
     );
 
     setMissaoAtual(null);
-
     alert("Missão recusada. Status voltou para Livre.");
   }
 
@@ -661,7 +604,6 @@ export default function App() {
     );
 
     setMissaoAtual(null);
-
     alert("Missão concluída. Status voltou para Livre.");
   }
 
@@ -706,7 +648,33 @@ export default function App() {
       { merge: true }
     );
 
-    alert("Emergência enviada para a Central.");
+    if (navigator.vibrate) {
+      navigator.vibrate([700, 300, 700]);
+    }
+
+    if (telefoneEmergencia) {
+      const confirmar = window.confirm(
+        `Emergência enviada para a Central.\n\nDeseja ligar agora para ${nomeEmergencia || "o contato de emergência"}?`
+      );
+
+      if (confirmar) {
+        ligarEmergencia();
+      }
+    } else {
+      alert("Emergência enviada para a Central. Nenhum telefone de emergência foi cadastrado pelo Mestre.");
+    }
+  }
+
+  function ligarEmergencia() {
+    const telefone = String(telefoneEmergencia || "").replace(/\D/g, "");
+
+    if (!telefone) {
+      alert("Telefone de emergência não cadastrado.");
+      return;
+    }
+
+    const telefoneFinal = telefone.startsWith("55") ? `+${telefone}` : `+55${telefone}`;
+    window.location.href = `tel:${telefoneFinal}`;
   }
 
   function abrirGoogleMaps(destino) {
@@ -730,6 +698,122 @@ export default function App() {
 
     const endereco = encodeURIComponent(`${destino}, Blumenau, SC`);
     window.open(`https://waze.com/ul?q=${endereco}&navigate=yes`, "_blank");
+  }
+
+  async function adicionarUsuario() {
+    const email = normalizarEmail(novoEmail);
+
+    if (!email) {
+      alert("Informe o e-mail.");
+      return;
+    }
+
+    if (email === emailMestreNormalizado) {
+      alert("O e-mail mestre já possui acesso total permanente.");
+      return;
+    }
+
+    await setDoc(
+      doc(db, "usuarios", email),
+      {
+        email,
+        funcao: novaFuncao,
+        ativo: true,
+        convitePendente: true,
+        criadoEm: new Date().toISOString(),
+        atualizadoEm: new Date().toISOString(),
+        criadoPor: emailUsuario,
+      },
+      { merge: true }
+    );
+
+    setNovoEmail("");
+    setNovaFuncao("carro");
+
+    const assunto = encodeURIComponent("Convite para acessar a Operação Capivara");
+    const corpo = encodeURIComponent(
+      `Olá,\n\nVocê foi adicionado à plataforma Operação Capivara.\n\nFunção: ${novaFuncao}\n\nAcesse com sua conta Google:\n${window.location.origin}\n\nEquipe Operação Capivara`
+    );
+
+    window.open(`mailto:${email}?subject=${assunto}&body=${corpo}`, "_blank");
+
+    alert("Usuário adicionado. O e-mail de convite foi aberto para envio.");
+  }
+
+  async function alterarFuncaoUsuario(email, novaFuncaoUsuario) {
+    const emailNormalizado = normalizarEmail(email);
+
+    if (emailNormalizado === emailMestreNormalizado) {
+      alert("O usuário mestre não pode ter a função alterada.");
+      return;
+    }
+
+    await updateDoc(doc(db, "usuarios", emailNormalizado), {
+      funcao: novaFuncaoUsuario,
+      atualizadoEm: new Date().toISOString(),
+      atualizadoPor: emailUsuario,
+    });
+  }
+
+  async function bloquearUsuario(email) {
+    const emailNormalizado = normalizarEmail(email);
+
+    if (emailNormalizado === emailMestreNormalizado) {
+      alert("O usuário mestre não pode ser bloqueado.");
+      return;
+    }
+
+    await updateDoc(doc(db, "usuarios", emailNormalizado), {
+      ativo: false,
+      bloqueadoEm: new Date().toISOString(),
+      bloqueadoPor: emailUsuario,
+    });
+  }
+
+  async function reativarUsuario(email) {
+    const emailNormalizado = normalizarEmail(email);
+
+    await updateDoc(doc(db, "usuarios", emailNormalizado), {
+      ativo: true,
+      atualizadoEm: new Date().toISOString(),
+      atualizadoPor: emailUsuario,
+    });
+  }
+
+  async function removerUsuario(email) {
+    const emailNormalizado = normalizarEmail(email);
+
+    if (emailNormalizado === emailMestreNormalizado) {
+      alert("O usuário mestre não pode ser removido.");
+      return;
+    }
+
+    const confirmar = window.confirm(`Remover acesso de ${emailNormalizado}?`);
+
+    if (!confirmar) return;
+
+    await deleteDoc(doc(db, "usuarios", emailNormalizado));
+  }
+
+  async function salvarTelefoneEmergencia() {
+    if (!nomeEmergencia.trim()) {
+      alert("Informe o nome do contato de emergência.");
+      return;
+    }
+
+    if (!telefoneEmergencia.trim()) {
+      alert("Informe o telefone de emergência.");
+      return;
+    }
+
+    await setDoc(doc(db, "configuracoes", "emergencia"), {
+      nome: nomeEmergencia.trim(),
+      telefone: telefoneEmergencia.trim(),
+      atualizadoEm: new Date().toISOString(),
+      atualizadoPor: emailUsuario,
+    });
+
+    alert("Telefone de emergência salvo.");
   }
 
   function segundosDesde(valor) {
@@ -778,42 +862,19 @@ export default function App() {
     missaoAtual.statusOperacional !== "Concluída" &&
     missaoAtual.statusOperacional !== "Recusada";
 
-  if (carregandoAuth) {
-    return (
-      <div style={styles.appCenter}>
-        <div style={styles.loginCard}>Carregando Operação Capivara...</div>
-      </div>
-    );
+  if (carregandoLogin) {
+    return <TelaSimples titulo="Operação Capivara" texto="Carregando..." />;
   }
 
   if (!usuario) {
     return (
-      <div style={styles.appCenter}>
-        <div style={styles.loginCard}>
-          <div style={styles.kicker}>CENTRAL TÁTICA</div>
-          <h1 style={styles.title}>OPERAÇÃO CAPIVARA</h1>
-          <p>Entre com sua conta Google para acessar o sistema.</p>
-          <button onClick={loginGoogle} style={styles.startButtonFull}>
-            ENTRAR COM GOOGLE
-          </button>
-        </div>
-      </div>
+      <TelaLogin onLogin={loginGoogle} />
     );
   }
 
-  if (!usuarioAtivo) {
+  if (!acessoAtivo) {
     return (
-      <div style={styles.appCenter}>
-        <div style={styles.loginCard}>
-          <h2>Acesso não liberado</h2>
-          <p>
-            O e-mail <b>{usuario.email}</b> não está cadastrado ou está bloqueado.
-          </p>
-          <button onClick={sair} style={styles.neutralButtonFull}>
-            SAIR
-          </button>
-        </div>
-      </div>
+      <TelaBloqueado usuario={usuario} onSair={sair} />
     );
   }
 
@@ -834,12 +895,12 @@ export default function App() {
           <div style={styles.kicker}>CENTRAL TÁTICA</div>
           <h1 style={styles.title}>OPERAÇÃO CAPIVARA</h1>
           <div style={styles.subtitle}>
-            {funcoes[funcaoAtual] || funcaoAtual} — {usuario.email}
+            {usuario.displayName || usuario.email} — {funcao?.toUpperCase()}
           </div>
         </div>
 
         <div style={styles.nav}>
-          {podeAcessarCentral && (
+          {podeVerCentral && (
             <button
               onClick={() => setTela("central")}
               style={{
@@ -851,25 +912,27 @@ export default function App() {
             </button>
           )}
 
-          <button
-            onClick={() => setTela("carro")}
-            style={{
-              ...styles.navButton,
-              ...(tela === "carro" ? styles.navButtonActive : {}),
-            }}
-          >
-            Painel de Carro
-          </button>
+          {podeUsarPainelCarro && (
+            <button
+              onClick={() => setTela("carro")}
+              style={{
+                ...styles.navButton,
+                ...(tela === "carro" ? styles.navButtonActive : {}),
+              }}
+            >
+              Painel de Carro
+            </button>
+          )}
 
           {podeGerenciarUsuarios && (
             <button
-              onClick={() => setTela("usuarios")}
+              onClick={() => setTela("mestre")}
               style={{
                 ...styles.navButton,
-                ...(tela === "usuarios" ? styles.navButtonActive : {}),
+                ...(tela === "mestre" ? styles.navButtonActive : {}),
               }}
             >
-              Usuários
+              Painel Mestre
             </button>
           )}
 
@@ -879,7 +942,7 @@ export default function App() {
         </div>
       </header>
 
-      {podeAcessarCentral && tela === "central" && (
+      {podeVerCentral && tela === "central" && (
         <main style={styles.main}>
           <section style={styles.statsGrid}>
             <div style={styles.statCard}>
@@ -938,7 +1001,7 @@ export default function App() {
           <section style={styles.missionPanel}>
             <div style={styles.panelHeaderClean}>
               <strong>Enviar solicitação de missão</strong>
-              <span>Carro precisa aceitar</span>
+              <span>O carro precisa aceitar</span>
             </div>
 
             <select
@@ -957,13 +1020,6 @@ export default function App() {
                   </option>
                 ))}
             </select>
-
-            <input
-              value={setorMissao}
-              onChange={(e) => setSetorMissao(e.target.value)}
-              placeholder="Setor operacional temporário. Ex: Garcia, Centro, Velha"
-              style={styles.inputFull}
-            />
 
             <input
               value={destinoMissao}
@@ -1037,7 +1093,7 @@ export default function App() {
                       >
                         <Popup>
                           <div style={{ minWidth: 250 }}>
-                            <strong>{carro.identificador || "Carro"}</strong>
+                            <strong>{carro.identificador || "Veículo"}</strong>
                             <br />
                             <b>Motorista:</b>{" "}
                             {carro.motorista || "Não informado"}
@@ -1062,8 +1118,6 @@ export default function App() {
                             </span>
                             <br />
                             <br />
-                            <b>Setor:</b> {missao?.setor || "Não definido"}
-                            <br />
                             <b>Destino:</b> {missao?.destino || "Sem destino"}
                             <br />
                             <b>Missão:</b> {missao?.texto || "Sem missão ativa"}
@@ -1084,52 +1138,24 @@ export default function App() {
               </div>
             </div>
           </section>
-
-          {(sinalAtencao > 0 || sinalPerdido > 0) && (
-            <section style={styles.sinalPanel}>
-              <div style={styles.panelHeaderClean}>
-                <strong>Monitor de sinal</strong>
-                <span>Carros com atualização atrasada</span>
-              </div>
-
-              {carrosOnline
-                .filter((carro) => nivelSinal(carro.atualizado) !== "ok")
-                .map((carro) => {
-                  const sinal = nivelSinal(carro.atualizado);
-
-                  return (
-                    <div
-                      key={carro.id}
-                      style={{
-                        ...styles.sinalItem,
-                        borderColor:
-                          sinal === "perdido" ? "#ff3333" : "#ffd000",
-                      }}
-                    >
-                      <strong>{carro.identificador || carro.motorista}</strong>
-                      <span
-                        style={{
-                          color: sinal === "perdido" ? "#ff3333" : "#ffd000",
-                          fontWeight: "bold",
-                        }}
-                      >
-                        {textoTempo(carro.atualizado)}
-                      </span>
-                    </div>
-                  );
-                })}
-            </section>
-          )}
         </main>
       )}
 
-      {tela === "carro" && (
+      {podeUsarPainelCarro && tela === "carro" && (
         <main style={styles.driverPage}>
           <section style={styles.driverCard}>
             <div style={styles.panelHeader}>
               <strong>Painel de Carro</strong>
               <span>Copiloto opera o app</span>
             </div>
+
+            {identificador && motorista && copiloto && (
+              <div style={styles.carroResumo}>
+                <strong>{identificador}</strong>
+                <span>Motorista: {motorista}</span>
+                <span>Copiloto: {copiloto}</span>
+              </div>
+            )}
 
             {missaoVisivel ? (
               <div
@@ -1142,10 +1168,6 @@ export default function App() {
                 <strong>📡 MISSÃO RECEBIDA</strong>
 
                 <p>{missaoAtual.texto}</p>
-
-                <p>
-                  <b>Setor:</b> {missaoAtual.setor || "Não informado"}
-                </p>
 
                 <p>
                   <b>Destino:</b> {missaoAtual.destino || "Não informado"}
@@ -1195,41 +1217,50 @@ export default function App() {
                       PEDIR APOIO
                     </button>
 
-                    <button onClick={acionarEmergencia} style={styles.stopButton}>
-                      EMERGÊNCIA
+                    <button onClick={acionarEmergencia} style={styles.emergencyButton}>
+                      🚨 EMERGÊNCIA
                     </button>
+
+                    {telefoneEmergencia && (
+                      <button onClick={ligarEmergencia} style={styles.phoneButton}>
+                        📞 LIGAR PARA {nomeEmergencia || "EMERGÊNCIA"}
+                      </button>
+                    )}
                   </>
                 )}
               </div>
             ) : (
-              <div style={styles.infoBox}>
-                Nenhuma missão ativa. Aguardando solicitação da Central.
+              <div style={styles.livreBox}>
+                <strong>🟢 LIVRE</strong>
+                <p>Aguardando solicitação da Central.</p>
               </div>
             )}
 
-            <label style={styles.label}>Motorista</label>
-            <input
-              value={motorista}
-              onChange={(e) => setMotorista(e.target.value)}
-              placeholder="Nome do motorista"
-              style={styles.input}
-            />
+            <div style={styles.formBox}>
+              <label style={styles.label}>Motorista</label>
+              <input
+                value={motorista}
+                onChange={(e) => setMotorista(e.target.value)}
+                placeholder="Nome do motorista"
+                style={styles.input}
+              />
 
-            <label style={styles.label}>Copiloto</label>
-            <input
-              value={copiloto}
-              onChange={(e) => setCopiloto(e.target.value)}
-              placeholder="Nome do copiloto"
-              style={styles.input}
-            />
+              <label style={styles.label}>Copiloto</label>
+              <input
+                value={copiloto}
+                onChange={(e) => setCopiloto(e.target.value)}
+                placeholder="Nome do copiloto"
+                style={styles.input}
+              />
 
-            <label style={styles.label}>Identificação do carro</label>
-            <input
-              value={identificador}
-              onChange={(e) => setIdentificador(e.target.value)}
-              placeholder="Ex: Gol prata, Carro 12"
-              style={styles.input}
-            />
+              <label style={styles.label}>Identificação do veículo</label>
+              <input
+                value={identificador}
+                onChange={(e) => setIdentificador(e.target.value)}
+                placeholder="Ex: Gol prata, Carro 12"
+                style={styles.input}
+              />
+            </div>
 
             <button onClick={iniciarGPS} style={styles.startButton}>
               INICIAR OPERAÇÃO
@@ -1246,95 +1277,165 @@ export default function App() {
         </main>
       )}
 
-      {podeGerenciarUsuarios && tela === "usuarios" && (
+      {podeGerenciarUsuarios && tela === "mestre" && (
         <main style={styles.main}>
-          <section style={styles.userPanel}>
+          <section style={styles.missionPanel}>
             <div style={styles.panelHeaderClean}>
-              <strong>Painel Mestre de Usuários</strong>
-              <span>Somente o usuário mestre acessa</span>
+              <strong>Painel Mestre</strong>
+              <span>Controle de usuários e emergência</span>
             </div>
 
-            <div style={styles.userFormGrid}>
-              <input
-                value={novoEmail}
-                onChange={(e) => setNovoEmail(e.target.value)}
-                placeholder="email@exemplo.com"
-                style={styles.inputFull}
-              />
+            <h3>Adicionar usuário</h3>
 
-              <select
-                value={novaFuncao}
-                onChange={(e) => setNovaFuncao(e.target.value)}
-                style={styles.inputFull}
-              >
-                <option value="admin">Coordenador/Admin</option>
-                <option value="operador">Operador</option>
-                <option value="carro">Carro</option>
-              </select>
+            <input
+              value={novoEmail}
+              onChange={(e) => setNovoEmail(e.target.value)}
+              placeholder="email@gmail.com"
+              style={styles.inputFull}
+            />
 
-              <button onClick={adicionarUsuario} style={styles.startButtonFull}>
-                ADICIONAR USUÁRIO
-              </button>
+            <select
+              value={novaFuncao}
+              onChange={(e) => setNovaFuncao(e.target.value)}
+              style={styles.inputFull}
+            >
+              <option value="carro">Carro</option>
+              <option value="operador">Operador</option>
+              <option value="admin">Admin/Coordenador</option>
+            </select>
+
+            <button onClick={adicionarUsuario} style={styles.startButtonFull}>
+              ADICIONAR USUÁRIO
+            </button>
+          </section>
+
+          <section style={styles.missionPanel}>
+            <div style={styles.panelHeaderClean}>
+              <strong>Telefone de emergência</strong>
+              <span>Usado pelo Painel de Carro</span>
             </div>
 
-            <div style={styles.masterCard}>
-              <strong>Usuário mestre</strong>
-              <p>{emailMestreNormalizado}</p>
-              <small>
-                Permanente. Não pode ser removido, bloqueado ou rebaixado.
-              </small>
+            <input
+              value={nomeEmergencia}
+              onChange={(e) => setNomeEmergencia(e.target.value)}
+              placeholder="Ex: Coordenador Geral"
+              style={styles.inputFull}
+            />
+
+            <input
+              value={telefoneEmergencia}
+              onChange={(e) => setTelefoneEmergencia(e.target.value)}
+              placeholder="Ex: 47999999999"
+              style={styles.inputFull}
+            />
+
+            <button onClick={salvarTelefoneEmergencia} style={styles.startButtonFull}>
+              SALVAR TELEFONE
+            </button>
+          </section>
+
+          <section style={styles.missionPanel}>
+            <div style={styles.panelHeaderClean}>
+              <strong>Usuários cadastrados</strong>
+              <span>{usuarios.length} registros</span>
             </div>
 
-            {usuariosCadastrados.map((item) => (
-              <div key={item.id} style={styles.userItem}>
-                <div>
-                  <strong>{item.email}</strong>
-                  <p>
-                    {item.ativo ? "🟢 Ativo" : "🔴 Bloqueado"} —{" "}
-                    {item.conviteAceito ? "Convite aceito" : "Convite pendente"}
-                  </p>
-                  <small>Último login: {formatarData(item.ultimoLogin)}</small>
+            {usuarios.map((item) => {
+              const itemEmail = normalizarEmail(item.email);
+              const itemEhMestre = itemEmail === emailMestreNormalizado;
+
+              return (
+                <div key={item.id} style={styles.userCard}>
+                  <div>
+                    <strong>{item.email}</strong>
+                    <p>
+                      Função: <b>{itemEhMestre ? "mestre" : item.funcao || "pendente"}</b>
+                    </p>
+                    <small>
+                      Status: {itemEhMestre || item.ativo ? "Ativo" : "Bloqueado"} | Último login:{" "}
+                      {formatarData(item.ultimoLogin)}
+                    </small>
+                  </div>
+
+                  <div style={styles.userActions}>
+                    {itemEhMestre ? (
+                      <span style={styles.masterBadge}>MESTRE</span>
+                    ) : (
+                      <>
+                        <select
+                          value={item.funcao || "carro"}
+                          onChange={(e) => alterarFuncaoUsuario(item.email, e.target.value)}
+                          style={styles.userSelect}
+                        >
+                          <option value="carro">Carro</option>
+                          <option value="operador">Operador</option>
+                          <option value="admin">Admin/Coordenador</option>
+                        </select>
+
+                        {item.ativo ? (
+                          <button onClick={() => bloquearUsuario(item.email)} style={styles.smallDanger}>
+                            Bloquear
+                          </button>
+                        ) : (
+                          <button onClick={() => reativarUsuario(item.email)} style={styles.smallSuccess}>
+                            Reativar
+                          </button>
+                        )}
+
+                        <button onClick={() => removerUsuario(item.email)} style={styles.smallNeutral}>
+                          Remover
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-
-                <select
-                  value={item.funcao || "carro"}
-                  onChange={(e) => alterarFuncaoUsuario(item.email, e.target.value)}
-                  style={styles.smallSelect}
-                >
-                  <option value="admin">Coordenador/Admin</option>
-                  <option value="operador">Operador</option>
-                  <option value="carro">Carro</option>
-                </select>
-
-                <div style={styles.userActions}>
-                  <button
-                    onClick={() => abrirConviteEmail(item.email, item.funcao)}
-                    style={styles.smallButton}
-                  >
-                    Convite
-                  </button>
-
-                  {item.ativo ? (
-                    <button
-                      onClick={() => bloquearUsuario(item.email)}
-                      style={styles.smallDangerButton}
-                    >
-                      Bloquear
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => reativarUsuario(item.email)}
-                      style={styles.smallButton}
-                    >
-                      Reativar
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </section>
         </main>
       )}
+    </div>
+  );
+}
+
+function TelaLogin({ onLogin }) {
+  return (
+    <div style={styles.app}>
+      <main style={styles.loginCard}>
+        <div style={styles.kicker}>CENTRAL TÁTICA</div>
+        <h1 style={styles.title}>OPERAÇÃO CAPIVARA</h1>
+        <p style={styles.subtitle}>Acesse com sua conta Google autorizada.</p>
+        <button onClick={onLogin} style={styles.startButtonFull}>
+          ENTRAR COM GOOGLE
+        </button>
+      </main>
+    </div>
+  );
+}
+
+function TelaBloqueado({ usuario, onSair }) {
+  return (
+    <div style={styles.app}>
+      <main style={styles.loginCard}>
+        <h1 style={styles.title}>Acesso não autorizado</h1>
+        <p style={styles.subtitle}>
+          {usuario?.email} ainda não possui permissão ativa na Operação Capivara.
+        </p>
+        <button onClick={onSair} style={styles.stopButton}>
+          SAIR
+        </button>
+      </main>
+    </div>
+  );
+}
+
+function TelaSimples({ titulo, texto }) {
+  return (
+    <div style={styles.app}>
+      <main style={styles.loginCard}>
+        <h1 style={styles.title}>{titulo}</h1>
+        <p style={styles.subtitle}>{texto}</p>
+      </main>
     </div>
   );
 }
@@ -1352,29 +1453,18 @@ function formatarData(valor) {
 const styles = {
   app: {
     background:
-      "radial-gradient(circle at top, #17351f 0%, #0b0d0f 38%, #050705 100%)",
+      "radial-gradient(circle at top, #17351f 0%, #0b0f0d 38%, #050705 100%)",
     minHeight: "100vh",
     color: "#d8ffe8",
-    padding: 18,
-    fontFamily: "Arial, sans-serif",
-  },
-  appCenter: {
-    background:
-      "radial-gradient(circle at top, #17351f 0%, #0b0d0f 38%, #050705 100%)",
-    minHeight: "100vh",
-    color: "#d8ffe8",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
     padding: 18,
     fontFamily: "Arial, sans-serif",
   },
   loginCard: {
-    width: "100%",
     maxWidth: 460,
-    background: "rgba(10,18,13,0.92)",
-    border: "1px solid rgba(0,255,136,0.35)",
-    borderRadius: 18,
+    margin: "80px auto",
+    background: "rgba(10,18,13,0.93)",
+    border: "1px solid rgba(0,255,136,0.32)",
+    borderRadius: 16,
     padding: 24,
     textAlign: "center",
   },
@@ -1409,7 +1499,6 @@ const styles = {
     display: "flex",
     gap: 10,
     flexWrap: "wrap",
-    justifyContent: "flex-end",
   },
   navButton: {
     padding: "12px 18px",
@@ -1484,7 +1573,6 @@ const styles = {
     justifyContent: "space-between",
     marginBottom: 12,
     color: "#fff",
-    gap: 12,
   },
   mapPanelFull: {
     background: "rgba(10,18,13,0.9)",
@@ -1533,25 +1621,6 @@ const styles = {
     borderRadius: "50%",
     marginRight: 6,
   },
-  sinalPanel: {
-    background: "rgba(10,18,13,0.9)",
-    border: "1px solid rgba(255,208,0,0.35)",
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 16,
-  },
-  sinalItem: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 12,
-    alignItems: "center",
-    background: "#111a14",
-    border: "1px solid #ffd000",
-    borderLeft: "6px solid",
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 10,
-  },
   driverPage: {
     maxWidth: 520,
     margin: "0 auto",
@@ -1562,6 +1631,27 @@ const styles = {
     borderRadius: 16,
     overflow: "hidden",
     paddingBottom: 16,
+  },
+  carroResumo: {
+    margin: 16,
+    padding: 14,
+    borderRadius: 12,
+    background: "rgba(0,255,136,0.08)",
+    border: "1px solid rgba(0,255,136,0.25)",
+    display: "grid",
+    gap: 4,
+  },
+  livreBox: {
+    margin: 16,
+    padding: 18,
+    borderRadius: 14,
+    background: "rgba(0,255,136,0.08)",
+    border: "1px solid rgba(0,255,136,0.28)",
+    textAlign: "center",
+    fontSize: 16,
+  },
+  formBox: {
+    marginTop: 12,
   },
   label: {
     display: "block",
@@ -1628,17 +1718,6 @@ const styles = {
     cursor: "pointer",
     fontSize: 15,
   },
-  neutralButtonFull: {
-    width: "100%",
-    padding: 15,
-    borderRadius: 10,
-    background: "#26352b",
-    color: "#d8ffe8",
-    border: "1px solid rgba(0,255,136,0.35)",
-    fontWeight: "bold",
-    cursor: "pointer",
-    fontSize: 15,
-  },
   blueButton: {
     width: "calc(100% - 32px)",
     margin: "10px 16px 0",
@@ -1675,6 +1754,31 @@ const styles = {
     cursor: "pointer",
     fontSize: 15,
   },
+  emergencyButton: {
+    width: "calc(100% - 32px)",
+    margin: "10px 16px 0",
+    padding: 17,
+    borderRadius: 10,
+    background: "#ff0033",
+    color: "#fff",
+    border: "none",
+    fontWeight: "bold",
+    cursor: "pointer",
+    fontSize: 16,
+    boxShadow: "0 0 18px rgba(255,0,51,0.35)",
+  },
+  phoneButton: {
+    width: "calc(100% - 32px)",
+    margin: "10px 16px 0",
+    padding: 16,
+    borderRadius: 10,
+    background: "#0055ff",
+    color: "#fff",
+    border: "none",
+    fontWeight: "bold",
+    cursor: "pointer",
+    fontSize: 15,
+  },
   neutralButton: {
     width: "calc(100% - 32px)",
     margin: "10px 16px 0",
@@ -1695,6 +1799,61 @@ const styles = {
     border: "1px solid #ffd000",
     color: "#fff2a8",
   },
+  userCard: {
+    display: "grid",
+    gridTemplateColumns: "1fr auto",
+    gap: 12,
+    background: "#111a14",
+    border: "1px solid rgba(0,255,136,0.2)",
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
+  },
+  userActions: {
+    display: "flex",
+    gap: 8,
+    alignItems: "center",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+  },
+  userSelect: {
+    padding: 10,
+    borderRadius: 8,
+    background: "#080d09",
+    color: "#d8ffe8",
+    border: "1px solid rgba(0,255,136,0.35)",
+  },
+  masterBadge: {
+    padding: "8px 12px",
+    borderRadius: 999,
+    background: "#ffd000",
+    color: "#061008",
+    fontWeight: "bold",
+  },
+  smallDanger: {
+    padding: "9px 10px",
+    borderRadius: 8,
+    background: "#aa0000",
+    color: "#fff",
+    border: "none",
+    cursor: "pointer",
+  },
+  smallSuccess: {
+    padding: "9px 10px",
+    borderRadius: 8,
+    background: "#00aa55",
+    color: "#fff",
+    border: "none",
+    cursor: "pointer",
+  },
+  smallNeutral: {
+    padding: "9px 10px",
+    borderRadius: 8,
+    background: "#26352b",
+    color: "#d8ffe8",
+    border: "1px solid rgba(0,255,136,0.35)",
+    cursor: "pointer",
+  },
   infoBox: {
     margin: 16,
     padding: 12,
@@ -1703,67 +1862,5 @@ const styles = {
     border: "1px solid rgba(0,255,136,0.2)",
     color: "#bfffd8",
     fontSize: 13,
-  },
-  userPanel: {
-    background: "rgba(10,18,13,0.9)",
-    border: "1px solid rgba(0,255,136,0.25)",
-    borderRadius: 16,
-    padding: 16,
-  },
-  userFormGrid: {
-    display: "grid",
-    gridTemplateColumns: "1.5fr 1fr auto",
-    gap: 12,
-    alignItems: "start",
-  },
-  masterCard: {
-    background: "rgba(255,208,0,0.12)",
-    border: "1px solid #ffd000",
-    borderRadius: 12,
-    padding: 14,
-    margin: "14px 0",
-    color: "#fff2a8",
-  },
-  userItem: {
-    display: "grid",
-    gridTemplateColumns: "1fr 220px auto",
-    gap: 12,
-    alignItems: "center",
-    background: "#111a14",
-    border: "1px solid rgba(0,255,136,0.18)",
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 10,
-  },
-  smallSelect: {
-    padding: 10,
-    borderRadius: 8,
-    background: "#080d09",
-    color: "#d8ffe8",
-    border: "1px solid rgba(0,255,136,0.35)",
-  },
-  userActions: {
-    display: "flex",
-    gap: 8,
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-  },
-  smallButton: {
-    padding: "10px 12px",
-    borderRadius: 8,
-    background: "#0066cc",
-    color: "#fff",
-    border: "none",
-    fontWeight: "bold",
-    cursor: "pointer",
-  },
-  smallDangerButton: {
-    padding: "10px 12px",
-    borderRadius: 8,
-    background: "#aa0000",
-    color: "#fff",
-    border: "none",
-    fontWeight: "bold",
-    cursor: "pointer",
   },
 };
