@@ -122,6 +122,7 @@ export default function App() {
   );
 
   const [tela, setTela] = useState("central");
+  const [abaCentral, setAbaCentral] = useState("operacao");
   const [carros, setCarros] = useState([]);
   const [missoes, setMissoes] = useState({});
   const [agora, setAgora] = useState(Date.now());
@@ -957,6 +958,63 @@ export default function App() {
 
       {podeVerCentral && tela === "central" && (
         <main style={styles.main}>
+          <section style={styles.centralTabs}>
+            <button
+              onClick={() => setAbaCentral("operacao")}
+              style={{
+                ...styles.tabButton,
+                ...(abaCentral === "operacao" ? styles.tabButtonActive : {}),
+              }}
+            >
+              🗺️ Operação
+            </button>
+
+            <button
+              onClick={() => setAbaCentral("missoes")}
+              style={{
+                ...styles.tabButton,
+                ...(abaCentral === "missoes" ? styles.tabButtonActive : {}),
+              }}
+            >
+              📡 Missões
+            </button>
+
+            <button
+              onClick={() => setAbaCentral("avisos")}
+              style={{
+                ...styles.tabButton,
+                ...(abaCentral === "avisos" ? styles.tabButtonActive : {}),
+              }}
+            >
+              📢 Avisos
+            </button>
+
+            {podeGerenciarUsuarios && (
+              <button
+                onClick={() => setAbaCentral("usuarios")}
+                style={{
+                  ...styles.tabButton,
+                  ...(abaCentral === "usuarios" ? styles.tabButtonActive : {}),
+                }}
+              >
+                👥 Usuários
+              </button>
+            )}
+
+            <button
+              onClick={() => setAbaCentral("sistema")}
+              style={{
+                ...styles.tabButton,
+                ...(abaCentral === "sistema" ? styles.tabButtonActive : {}),
+              }}
+            >
+              ⚙️ Sistema
+            </button>
+          </section>
+
+          {abaCentral === "operacao" && (
+            <>
+
           <section style={styles.statsGrid}>
             <div style={styles.statCard}>
               <span style={styles.statLabel}>Online</span>
@@ -1008,101 +1066,6 @@ export default function App() {
           {sinalPerdido > 0 && (
             <section style={styles.alertSinal}>
               ⚠️ ATENÇÃO: existe carro sem atualização há mais de 90 segundos.
-            </section>
-          )}
-
-          {podeEnviarMissao && (
-            <section style={styles.missionPanel}>
-              <div style={styles.panelHeaderClean}>
-                <strong>Enviar solicitação de missão</strong>
-                <span>Carro precisa aceitar</span>
-              </div>
-
-              <select
-                value={equipeMissao}
-                onChange={(e) => setEquipeMissao(e.target.value)}
-                style={styles.inputFull}
-              >
-                <option value="">Selecione um carro online</option>
-                {carrosOnline
-                  .filter((carro) => carro.status === "Livre")
-                  .map((carro) => (
-                    <option key={carro.id} value={carro.id}>
-                      {carro.motorista} / {carro.copiloto} —{" "}
-                      {carro.identificador || "sem veículo"} —{" "}
-                      {textoTempo(carro.atualizado)}
-                    </option>
-                  ))}
-              </select>
-
-              <input
-                value={destinoMissao}
-                onChange={(e) => setDestinoMissao(e.target.value)}
-                placeholder="Destino. Ex: Rua Parati, 95"
-                style={styles.inputFull}
-              />
-
-              <textarea
-                value={missaoTexto}
-                onChange={(e) => setMissaoTexto(e.target.value)}
-                placeholder="Descrição da missão"
-                style={styles.textarea}
-              />
-
-              <button onClick={enviarMissao} style={styles.startButtonFull}>
-                ENVIAR SOLICITAÇÃO
-              </button>
-            </section>
-          )}
-
-          {podeEnviarMissao && (
-            <section style={styles.broadcastPanel}>
-              <div style={styles.panelHeaderClean}>
-                <strong>Aviso geral para carros</strong>
-                <span>Mensagem aparece em todos os carros conectados</span>
-              </div>
-
-              {!mostrarAvisoForm ? (
-                <button
-                  onClick={() => setMostrarAvisoForm(true)}
-                  style={styles.neutralButtonFull}
-                >
-                  + ENVIAR AVISO GERAL
-                </button>
-              ) : (
-                <div style={styles.formInline}>
-                  <textarea
-                    value={avisoGeralTexto}
-                    onChange={(e) => setAvisoGeralTexto(e.target.value)}
-                    placeholder="Ex: Todos retornem para a base."
-                    style={styles.textarea}
-                  />
-
-                  <button onClick={enviarAvisoGeral} style={styles.startButtonFull}>
-                    ENVIAR PARA TODOS OS CARROS
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setMostrarAvisoForm(false);
-                      setAvisoGeralTexto("");
-                    }}
-                    style={styles.stopButtonFull}
-                  >
-                    CANCELAR
-                  </button>
-                </div>
-              )}
-
-              {configuracao?.avisoGeral?.texto && (
-                <div style={styles.infoBox}>
-                  Último aviso: <b>{configuracao.avisoGeral.texto}</b>
-                  <br />
-                  <small>
-                    Enviado em: {formatarData(configuracao.avisoGeral.enviadoEm)}
-                  </small>
-                </div>
-              )}
             </section>
           )}
 
@@ -1204,6 +1167,191 @@ export default function App() {
               </div>
             </div>
           </section>
+
+            </>
+          )}
+
+          {abaCentral === "missoes" && (
+            <>
+          {podeEnviarMissao && (
+            <section style={styles.missionPanel}>
+              <div style={styles.panelHeaderClean}>
+                <strong>Enviar solicitação de missão</strong>
+                <span>Carro precisa aceitar</span>
+              </div>
+
+              <select
+                value={equipeMissao}
+                onChange={(e) => setEquipeMissao(e.target.value)}
+                style={styles.inputFull}
+              >
+                <option value="">Selecione um carro online</option>
+                {carrosOnline
+                  .filter((carro) => carro.status === "Livre")
+                  .map((carro) => (
+                    <option key={carro.id} value={carro.id}>
+                      {carro.motorista} / {carro.copiloto} —{" "}
+                      {carro.identificador || "sem veículo"} —{" "}
+                      {textoTempo(carro.atualizado)}
+                    </option>
+                  ))}
+              </select>
+
+              <input
+                value={destinoMissao}
+                onChange={(e) => setDestinoMissao(e.target.value)}
+                placeholder="Destino. Ex: Rua Parati, 95"
+                style={styles.inputFull}
+              />
+
+              <textarea
+                value={missaoTexto}
+                onChange={(e) => setMissaoTexto(e.target.value)}
+                placeholder="Descrição da missão"
+                style={styles.textarea}
+              />
+
+              <button onClick={enviarMissao} style={styles.startButtonFull}>
+                ENVIAR SOLICITAÇÃO
+              </button>
+            </section>
+          )}
+
+
+            </>
+          )}
+
+          {abaCentral === "avisos" && (
+            <>
+          {podeEnviarMissao && (
+            <section style={styles.broadcastPanel}>
+              <div style={styles.panelHeaderClean}>
+                <strong>Aviso geral para carros</strong>
+                <span>Mensagem aparece em todos os carros conectados</span>
+              </div>
+
+              {!mostrarAvisoForm ? (
+                <button
+                  onClick={() => setMostrarAvisoForm(true)}
+                  style={styles.neutralButtonFull}
+                >
+                  + ENVIAR AVISO GERAL
+                </button>
+              ) : (
+                <div style={styles.formInline}>
+                  <textarea
+                    value={avisoGeralTexto}
+                    onChange={(e) => setAvisoGeralTexto(e.target.value)}
+                    placeholder="Ex: Todos retornem para a base."
+                    style={styles.textarea}
+                  />
+
+                  <button onClick={enviarAvisoGeral} style={styles.startButtonFull}>
+                    ENVIAR PARA TODOS OS CARROS
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setMostrarAvisoForm(false);
+                      setAvisoGeralTexto("");
+                    }}
+                    style={styles.stopButtonFull}
+                  >
+                    CANCELAR
+                  </button>
+                </div>
+              )}
+
+              {configuracao?.avisoGeral?.texto && (
+                <div style={styles.infoBox}>
+                  Último aviso: <b>{configuracao.avisoGeral.texto}</b>
+                  <br />
+                  <small>
+                    Enviado em: {formatarData(configuracao.avisoGeral.enviadoEm)}
+                  </small>
+                </div>
+              )}
+            </section>
+          )}
+
+
+            </>
+          )}
+
+          {abaCentral === "usuarios" && podeGerenciarUsuarios && (
+            <section style={styles.missionPanel}>
+              <div style={styles.panelHeaderClean}>
+                <strong>Usuários e permissões</strong>
+                <span>Resumo rápido da Central</span>
+              </div>
+
+              <div style={styles.infoBox}>
+                Para incluir, remover ou alterar funções, acesse o Painel Mestre completo.
+              </div>
+
+              <button
+                onClick={() => setTela("mestre")}
+                style={styles.startButtonFull}
+              >
+                ABRIR PAINEL MESTRE
+              </button>
+
+              <div style={styles.userList}>
+                {usuarios.slice(0, 8).map((item) => (
+                  <div key={item.email} style={styles.userItem}>
+                    <div>
+                      <strong>{item.email}</strong>
+                      <p>{nomesFuncoes[item.funcao] || item.funcao}</p>
+                      <small>Último login: {formatarData(item.ultimoLogin)}</small>
+                    </div>
+                    <span style={styles.userBadge}>
+                      {item.ativo === false ? "Bloqueado" : "Ativo"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+
+          {abaCentral === "sistema" && (
+            <section style={styles.missionPanel}>
+              <div style={styles.panelHeaderClean}>
+                <strong>Sistema</strong>
+                <span>Configurações e próximos módulos</span>
+              </div>
+
+              <div style={styles.systemGrid}>
+                <div style={styles.systemCard}>
+                  <strong>Telefone de emergência</strong>
+                  <p>
+                    {configuracao?.emergenciaNome || "Não cadastrado"} — {" "}
+                    {configuracao?.emergenciaTelefone || "Sem telefone"}
+                  </p>
+                </div>
+
+                <div style={styles.systemCard}>
+                  <strong>Último aviso geral</strong>
+                  <p>{configuracao?.avisoGeral?.texto || "Nenhum aviso enviado"}</p>
+                </div>
+
+                <div style={styles.systemCard}>
+                  <strong>Status do app</strong>
+                  <p>Online via Vercel + Firebase realtime.</p>
+                </div>
+              </div>
+
+              {podeGerenciarUsuarios && (
+                <button
+                  onClick={() => setTela("mestre")}
+                  style={styles.neutralButtonFull}
+                >
+                  ABRIR CONFIGURAÇÕES AVANÇADAS
+                </button>
+              )}
+            </section>
+          )}
+
         </main>
       )}
 
@@ -1598,6 +1746,54 @@ const styles = {
   navButtonActive: {
     background: "#00aa55",
     color: "#fff",
+  },
+
+  centralTabs: {
+    maxWidth: 1300,
+    margin: "0 auto 16px auto",
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    background: "rgba(10,18,13,0.72)",
+    border: "1px solid rgba(0,255,136,0.18)",
+    borderRadius: 14,
+    padding: 10,
+  },
+  tabButton: {
+    padding: "11px 14px",
+    borderRadius: 10,
+    border: "1px solid rgba(0,255,136,0.25)",
+    background: "#101812",
+    color: "#d8ffe8",
+    cursor: "pointer",
+    fontWeight: "bold",
+    fontSize: 13,
+  },
+  tabButtonActive: {
+    background: "#00aa55",
+    color: "#fff",
+    border: "1px solid #00ff88",
+  },
+  systemGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: 12,
+    marginBottom: 14,
+  },
+  systemCard: {
+    background: "#111a14",
+    border: "1px solid rgba(0,255,136,0.18)",
+    borderRadius: 12,
+    padding: 14,
+  },
+  userBadge: {
+    padding: "6px 10px",
+    borderRadius: 999,
+    background: "rgba(0,255,136,0.14)",
+    border: "1px solid rgba(0,255,136,0.28)",
+    color: "#d8ffe8",
+    fontWeight: "bold",
+    fontSize: 12,
   },
   main: {
     maxWidth: 1300,
