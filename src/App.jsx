@@ -35,19 +35,29 @@ const coresStatus = {
   Offline: "#777",
 };
 
-function criarIconeCapivara(status) {
-  const cor = coresStatus[status] || "#00ff88";
-  const destaque = status === "Emergência" || status === "Apoio solicitado";
+function criarIconeCapivara(status, nivelSinal) {
+  const corBase = coresStatus[status] || "#00ff88";
+  const cor =
+    nivelSinal === "perdido"
+      ? "#ff3333"
+      : nivelSinal === "atencao"
+      ? "#ffd000"
+      : corBase;
+
+  const destaque =
+    status === "Emergência" ||
+    status === "Apoio solicitado" ||
+    nivelSinal === "perdido";
 
   return L.divIcon({
     className: "",
-    iconSize: destaque ? [58, 58] : [48, 48],
-    iconAnchor: destaque ? [29, 58] : [24, 48],
-    popupAnchor: [0, destaque ? -54 : -44],
+    iconSize: destaque ? [60, 60] : [48, 48],
+    iconAnchor: destaque ? [30, 60] : [24, 48],
+    popupAnchor: [0, destaque ? -56 : -44],
     html: `
       <div style="
-        width:${destaque ? 58 : 48}px;
-        height:${destaque ? 58 : 48}px;
+        width:${destaque ? 60 : 48}px;
+        height:${destaque ? 60 : 48}px;
         border-radius:50%;
         background:${cor};
         border:3px solid #ffffff;
@@ -59,8 +69,8 @@ function criarIconeCapivara(status) {
         ${destaque ? "animation:pulse 1s infinite;" : ""}
       ">
         <img src="/capivara-192.png" style="
-          width:${destaque ? 48 : 40}px;
-          height:${destaque ? 48 : 40}px;
+          width:${destaque ? 50 : 40}px;
+          height:${destaque ? 50 : 40}px;
           object-fit:cover;
           border-radius:50%;
         " />
@@ -73,6 +83,7 @@ export default function App() {
   const [tela, setTela] = useState("central");
   const [carros, setCarros] = useState([]);
   const [missoes, setMissoes] = useState({});
+  const [agora, setAgora] = useState(Date.now());
 
   const [motorista, setMotorista] = useState(
     () => localStorage.getItem("motorista") || ""
@@ -103,6 +114,14 @@ export default function App() {
     [identificador]
   );
   useEffect(() => localStorage.setItem("idEquipe", idEquipe), [idEquipe]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setAgora(Date.now());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "carros"), (snapshot) => {
@@ -221,7 +240,19 @@ export default function App() {
     }
 
     intervaloRef.current = setInterval(() => {
-      enviarLocalizacao(idAtual, "Livre");
+      const missao = missoes[idAtual];
+      const statusAtual =
+        missao?.statusOperacional === "Solicitado"
+          ? "Solicitado"
+          : missao?.statusOperacional === "Em deslocamento"
+          ? "Em deslocamento"
+          : missao?.statusOperacional === "Em missão"
+          ? "Em missão"
+          : missao?.statusOperacional === "Apoio solicitado"
+          ? "Apoio solicitado"
+          : "Livre";
+
+      enviarLocalizacao(idAtual, statusAtual);
     }, 15000);
 
     alert("Operação iniciada. Status: Livre");
@@ -291,22 +322,22 @@ export default function App() {
       return;
     }
 
-    const agora = new Date().toISOString();
+    const agoraISO = new Date().toISOString();
 
     await setDoc(doc(db, "missoes", equipeMissao), {
       texto: missaoTexto.trim(),
       destino: destinoMissao.trim(),
       setor: setorMissao.trim(),
       statusOperacional: "Solicitado",
-      enviadaEm: agora,
-      atualizadoEm: agora,
+      enviadaEm: agoraISO,
+      atualizadoEm: agoraISO,
     });
 
     await setDoc(
       doc(db, "carros", equipeMissao),
       {
         status: "Solicitado",
-        atualizado: agora,
+        atualizado: agoraISO,
       },
       { merge: true }
     );
@@ -321,19 +352,19 @@ export default function App() {
   async function aceitarMissao() {
     if (!idEquipe) return;
 
-    const agora = new Date().toISOString();
+    const agoraISO = new Date().toISOString();
 
     await updateDoc(doc(db, "missoes", idEquipe), {
       statusOperacional: "Em deslocamento",
-      aceitoEm: agora,
-      atualizadoEm: agora,
+      aceitoEm: agoraISO,
+      atualizadoEm: agoraISO,
     });
 
     await setDoc(
       doc(db, "carros", idEquipe),
       {
         status: "Em deslocamento",
-        atualizado: agora,
+        atualizado: agoraISO,
       },
       { merge: true }
     );
@@ -344,19 +375,19 @@ export default function App() {
   async function recusarMissao() {
     if (!idEquipe) return;
 
-    const agora = new Date().toISOString();
+    const agoraISO = new Date().toISOString();
 
     await updateDoc(doc(db, "missoes", idEquipe), {
       statusOperacional: "Recusada",
-      recusadaEm: agora,
-      atualizadoEm: agora,
+      recusadaEm: agoraISO,
+      atualizadoEm: agoraISO,
     });
 
     await setDoc(
       doc(db, "carros", idEquipe),
       {
         status: "Livre",
-        atualizado: agora,
+        atualizado: agoraISO,
       },
       { merge: true }
     );
@@ -369,19 +400,19 @@ export default function App() {
   async function iniciarMissao() {
     if (!idEquipe) return;
 
-    const agora = new Date().toISOString();
+    const agoraISO = new Date().toISOString();
 
     await updateDoc(doc(db, "missoes", idEquipe), {
       statusOperacional: "Em missão",
-      iniciadoEm: agora,
-      atualizadoEm: agora,
+      iniciadoEm: agoraISO,
+      atualizadoEm: agoraISO,
     });
 
     await setDoc(
       doc(db, "carros", idEquipe),
       {
         status: "Em missão",
-        atualizado: agora,
+        atualizado: agoraISO,
       },
       { merge: true }
     );
@@ -390,19 +421,19 @@ export default function App() {
   async function concluirMissao() {
     if (!idEquipe) return;
 
-    const agora = new Date().toISOString();
+    const agoraISO = new Date().toISOString();
 
     await updateDoc(doc(db, "missoes", idEquipe), {
       statusOperacional: "Concluída",
-      concluidaEm: agora,
-      atualizadoEm: agora,
+      concluidaEm: agoraISO,
+      atualizadoEm: agoraISO,
     });
 
     await setDoc(
       doc(db, "carros", idEquipe),
       {
         status: "Livre",
-        atualizado: agora,
+        atualizado: agoraISO,
       },
       { merge: true }
     );
@@ -415,19 +446,19 @@ export default function App() {
   async function pedirApoio() {
     if (!idEquipe) return;
 
-    const agora = new Date().toISOString();
+    const agoraISO = new Date().toISOString();
 
     await updateDoc(doc(db, "missoes", idEquipe), {
       statusOperacional: "Apoio solicitado",
-      apoioSolicitadoEm: agora,
-      atualizadoEm: agora,
+      apoioSolicitadoEm: agoraISO,
+      atualizadoEm: agoraISO,
     });
 
     await setDoc(
       doc(db, "carros", idEquipe),
       {
         status: "Apoio solicitado",
-        atualizado: agora,
+        atualizado: agoraISO,
       },
       { merge: true }
     );
@@ -442,13 +473,13 @@ export default function App() {
   async function acionarEmergencia() {
     if (!idEquipe) return;
 
-    const agora = new Date().toISOString();
+    const agoraISO = new Date().toISOString();
 
     await setDoc(
       doc(db, "carros", idEquipe),
       {
         status: "Emergência",
-        atualizado: agora,
+        atualizado: agoraISO,
       },
       { merge: true }
     );
@@ -479,8 +510,33 @@ export default function App() {
     window.open(`https://waze.com/ul?q=${endereco}&navigate=yes`, "_blank");
   }
 
-  const carrosOnline = carros.filter((c) => c.online);
+  function segundosDesde(valor) {
+    if (!valor) return 999999;
+    return Math.floor((agora - new Date(valor).getTime()) / 1000);
+  }
 
+  function textoTempo(valor) {
+    const segundos = segundosDesde(valor);
+
+    if (segundos < 5) return "agora";
+    if (segundos < 60) return `há ${segundos}s`;
+
+    const minutos = Math.floor(segundos / 60);
+    if (minutos < 60) return `há ${minutos}min`;
+
+    const horas = Math.floor(minutos / 60);
+    return `há ${horas}h`;
+  }
+
+  function nivelSinal(valor) {
+    const segundos = segundosDesde(valor);
+
+    if (segundos > 90) return "perdido";
+    if (segundos > 45) return "atencao";
+    return "ok";
+  }
+
+  const carrosOnline = carros.filter((c) => c.online);
   const online = carrosOnline.length;
   const solicitados = carrosOnline.filter((c) => c.status === "Solicitado").length;
   const deslocamento = carrosOnline.filter(
@@ -488,6 +544,12 @@ export default function App() {
   ).length;
   const emergencia = carrosOnline.filter((c) => c.status === "Emergência").length;
   const apoio = carrosOnline.filter((c) => c.status === "Apoio solicitado").length;
+  const sinalAtencao = carrosOnline.filter(
+    (c) => nivelSinal(c.atualizado) === "atencao"
+  ).length;
+  const sinalPerdido = carrosOnline.filter(
+    (c) => nivelSinal(c.atualizado) === "perdido"
+  ).length;
 
   const missaoVisivel =
     missaoAtual &&
@@ -564,11 +626,31 @@ export default function App() {
                 {apoio + emergencia}
               </strong>
             </div>
+
+            <div style={styles.statCard}>
+              <span style={styles.statLabel}>Sinal atenção</span>
+              <strong style={{ ...styles.statValue, color: "#ffd000" }}>
+                {sinalAtencao}
+              </strong>
+            </div>
+
+            <div style={styles.statCard}>
+              <span style={styles.statLabel}>Possível perda</span>
+              <strong style={{ ...styles.statValue, color: "#ff3333" }}>
+                {sinalPerdido}
+              </strong>
+            </div>
           </section>
 
           {(apoio > 0 || emergencia > 0) && (
             <section style={styles.alertApoio}>
               🚨 ATENÇÃO: existe equipe solicitando apoio ou em emergência!
+            </section>
+          )}
+
+          {sinalPerdido > 0 && (
+            <section style={styles.alertSinal}>
+              ⚠️ ATENÇÃO: existe equipe sem atualização há mais de 90 segundos.
             </section>
           )}
 
@@ -589,7 +671,8 @@ export default function App() {
                 .map((carro) => (
                   <option key={carro.id} value={carro.id}>
                     {carro.motorista} / {carro.copiloto} —{" "}
-                    {carro.identificador || "sem veículo"}
+                    {carro.identificador || "sem veículo"} —{" "}
+                    {textoTempo(carro.atualizado)}
                   </option>
                 ))}
             </select>
@@ -634,7 +717,7 @@ export default function App() {
                 </div>
                 <div>
                   <span style={{ ...styles.dot, background: "#ffd000" }} />{" "}
-                  Solicitado
+                  Solicitado / sinal atenção
                 </div>
                 <div>
                   <span style={{ ...styles.dot, background: "#00aaff" }} /> Em
@@ -646,7 +729,7 @@ export default function App() {
                 </div>
                 <div>
                   <span style={{ ...styles.dot, background: "#ff3333" }} />{" "}
-                  Apoio/Emergência
+                  Apoio / emergência / sinal perdido
                 </div>
               </div>
 
@@ -663,15 +746,16 @@ export default function App() {
 
                   {carrosOnline.map((carro) => {
                     const missao = missoes[carro.id];
+                    const sinal = nivelSinal(carro.atualizado);
 
                     return carro.latitude && carro.longitude ? (
                       <Marker
                         key={carro.id}
                         position={[carro.latitude, carro.longitude]}
-                        icon={criarIconeCapivara(carro.status)}
+                        icon={criarIconeCapivara(carro.status, sinal)}
                       >
                         <Popup>
-                          <div style={{ minWidth: 240 }}>
+                          <div style={{ minWidth: 250 }}>
                             <strong>{carro.identificador || "Veículo"}</strong>
                             <br />
                             <b>Motorista:</b>{" "}
@@ -681,6 +765,20 @@ export default function App() {
                             {carro.copiloto || "Não informado"}
                             <br />
                             <b>Status:</b> {carro.status || "Livre"}
+                            <br />
+                            <b>Última atividade:</b>{" "}
+                            <span
+                              style={{
+                                color:
+                                  sinal === "perdido"
+                                    ? "#ff3333"
+                                    : sinal === "atencao"
+                                    ? "#ffd000"
+                                    : "#00ff88",
+                              }}
+                            >
+                              {textoTempo(carro.atualizado)}
+                            </span>
                             <br />
                             <br />
                             <b>Setor:</b> {missao?.setor || "Não definido"}
@@ -705,6 +803,42 @@ export default function App() {
               </div>
             </div>
           </section>
+
+          {(sinalAtencao > 0 || sinalPerdido > 0) && (
+            <section style={styles.sinalPanel}>
+              <div style={styles.panelHeaderClean}>
+                <strong>Monitor de sinal</strong>
+                <span>Equipes com atualização atrasada</span>
+              </div>
+
+              {carrosOnline
+                .filter((carro) => nivelSinal(carro.atualizado) !== "ok")
+                .map((carro) => {
+                  const sinal = nivelSinal(carro.atualizado);
+
+                  return (
+                    <div
+                      key={carro.id}
+                      style={{
+                        ...styles.sinalItem,
+                        borderColor:
+                          sinal === "perdido" ? "#ff3333" : "#ffd000",
+                      }}
+                    >
+                      <strong>{carro.identificador || carro.motorista}</strong>
+                      <span
+                        style={{
+                          color: sinal === "perdido" ? "#ff3333" : "#ffd000",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        {textoTempo(carro.atualizado)}
+                      </span>
+                    </div>
+                  );
+                })}
+            </section>
+          )}
         </main>
       )}
 
@@ -935,6 +1069,17 @@ const styles = {
     fontWeight: "bold",
     textAlign: "center",
   },
+  alertSinal: {
+    maxWidth: 1300,
+    margin: "0 auto 16px auto",
+    background: "rgba(255,208,0,0.15)",
+    border: "1px solid #ffd000",
+    color: "#fff2a8",
+    padding: 16,
+    borderRadius: 14,
+    fontWeight: "bold",
+    textAlign: "center",
+  },
   missionPanel: {
     background: "rgba(10,18,13,0.9)",
     border: "1px solid rgba(255,208,0,0.35)",
@@ -994,6 +1139,25 @@ const styles = {
     height: 10,
     borderRadius: "50%",
     marginRight: 6,
+  },
+  sinalPanel: {
+    background: "rgba(10,18,13,0.9)",
+    border: "1px solid rgba(255,208,0,0.35)",
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 16,
+  },
+  sinalItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "center",
+    background: "#111a14",
+    border: "1px solid #ffd000",
+    borderLeft: "6px solid",
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
   },
   driverPage: {
     maxWidth: 520,
