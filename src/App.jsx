@@ -34,6 +34,10 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 
+const administradores = [
+  "leandro.atmoraes@gmail.com",
+].map((email) => email.toLowerCase());
+
 const coresStatus = {
   Livre: "#00ff88",
   Solicitado: "#ffd000",
@@ -96,6 +100,9 @@ export default function App() {
   const [usuario, setUsuario] = useState(null);
   const [carregandoLogin, setCarregandoLogin] = useState(true);
 
+  const ehAdministrador =
+    usuario && administradores.includes(usuario.email.toLowerCase());
+
   const [motorista, setMotorista] = useState(
     () => localStorage.getItem("motorista") || ""
   );
@@ -126,6 +133,12 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (usuario && !ehAdministrador && tela === "central") {
+      setTela("motorista");
+    }
+  }, [usuario, ehAdministrador, tela]);
 
   useEffect(() => localStorage.setItem("motorista", motorista), [motorista]);
   useEffect(() => localStorage.setItem("copiloto", copiloto), [copiloto]);
@@ -646,21 +659,24 @@ export default function App() {
           <div style={styles.userBox}>
             <span>{usuario.displayName || "Usuário"}</span>
             <small>{usuario.email}</small>
+            <small>{ehAdministrador ? "Coordenador" : "Equipe"}</small>
           </div>
 
           <button onClick={sairDaConta} style={styles.logoutButton}>
             Sair
           </button>
 
-          <button
-            onClick={() => setTela("central")}
-            style={{
-              ...styles.navButton,
-              ...(tela === "central" ? styles.navButtonActive : {}),
-            }}
-          >
-            Central
-          </button>
+          {ehAdministrador && (
+            <button
+              onClick={() => setTela("central")}
+              style={{
+                ...styles.navButton,
+                ...(tela === "central" ? styles.navButtonActive : {}),
+              }}
+            >
+              Central
+            </button>
+          )}
 
           <button
             onClick={() => setTela("motorista")}
@@ -674,7 +690,7 @@ export default function App() {
         </div>
       </header>
 
-      {tela === "central" && (
+      {ehAdministrador && tela === "central" && (
         <main style={styles.main}>
           <section style={styles.statsGrid}>
             <div style={styles.statCard}>
