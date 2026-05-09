@@ -115,6 +115,11 @@ export default function App() {
   const [mostrarEmergenciaForm, setMostrarEmergenciaForm] = useState(false);
   const [emergenciaNome, setEmergenciaNome] = useState("");
   const [emergenciaTelefone, setEmergenciaTelefone] = useState("");
+  const [mostrarAvisoForm, setMostrarAvisoForm] = useState(false);
+  const [avisoGeralTexto, setAvisoGeralTexto] = useState("");
+  const [avisoConfirmadoId, setAvisoConfirmadoId] = useState(
+    () => localStorage.getItem("avisoConfirmadoId") || ""
+  );
 
   const [tela, setTela] = useState("central");
   const [carros, setCarros] = useState([]);
@@ -788,6 +793,41 @@ export default function App() {
     alert("Telefone de emergência salvo.");
   }
 
+  async function enviarAvisoGeral() {
+    if (!avisoGeralTexto.trim()) {
+      alert("Digite a mensagem do aviso geral.");
+      return;
+    }
+
+    const agoraISO = new Date().toISOString();
+
+    await setDoc(
+      doc(db, "configuracoes", "geral"),
+      {
+        avisoGeral: {
+          id: `${Date.now()}`,
+          texto: avisoGeralTexto.trim(),
+          enviadoEm: agoraISO,
+          enviadoPor: emailUsuario,
+        },
+      },
+      { merge: true }
+    );
+
+    setAvisoGeralTexto("");
+    setMostrarAvisoForm(false);
+    alert("Aviso geral enviado para todos os carros conectados.");
+  }
+
+  function confirmarAvisoGeral() {
+    const idAviso = configuracao?.avisoGeral?.id;
+
+    if (!idAviso) return;
+
+    localStorage.setItem("avisoConfirmadoId", idAviso);
+    setAvisoConfirmadoId(idAviso);
+  }
+
   const carrosOnline = carros.filter((c) => c.online);
   const online = carrosOnline.length;
   const solicitados = carrosOnline.filter((c) => c.status === "Solicitado").length;
@@ -807,6 +847,10 @@ export default function App() {
     missaoAtual &&
     missaoAtual.statusOperacional !== "Concluída" &&
     missaoAtual.statusOperacional !== "Recusada";
+
+  const avisoGeralVisivel =
+    configuracao?.avisoGeral?.id &&
+    configuracao.avisoGeral.id !== avisoConfirmadoId;
 
   const carroIniciado = Boolean(idEquipe);
 
@@ -1011,6 +1055,57 @@ export default function App() {
             </section>
           )}
 
+          {podeEnviarMissao && (
+            <section style={styles.broadcastPanel}>
+              <div style={styles.panelHeaderClean}>
+                <strong>Aviso geral para carros</strong>
+                <span>Mensagem aparece em todos os carros conectados</span>
+              </div>
+
+              {!mostrarAvisoForm ? (
+                <button
+                  onClick={() => setMostrarAvisoForm(true)}
+                  style={styles.neutralButtonFull}
+                >
+                  + ENVIAR AVISO GERAL
+                </button>
+              ) : (
+                <div style={styles.formInline}>
+                  <textarea
+                    value={avisoGeralTexto}
+                    onChange={(e) => setAvisoGeralTexto(e.target.value)}
+                    placeholder="Ex: Todos retornem para a base."
+                    style={styles.textarea}
+                  />
+
+                  <button onClick={enviarAvisoGeral} style={styles.startButtonFull}>
+                    ENVIAR PARA TODOS OS CARROS
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setMostrarAvisoForm(false);
+                      setAvisoGeralTexto("");
+                    }}
+                    style={styles.stopButtonFull}
+                  >
+                    CANCELAR
+                  </button>
+                </div>
+              )}
+
+              {configuracao?.avisoGeral?.texto && (
+                <div style={styles.infoBox}>
+                  Último aviso: <b>{configuracao.avisoGeral.texto}</b>
+                  <br />
+                  <small>
+                    Enviado em: {formatarData(configuracao.avisoGeral.enviadoEm)}
+                  </small>
+                </div>
+              )}
+            </section>
+          )}
+
           <section style={styles.mapPanelFull}>
             <div style={styles.panelHeader}>
               <strong>Mapa operacional</strong>
@@ -1122,17 +1217,25 @@ export default function App() {
 
             <div style={styles.masterActions}>
               <button
-                onClick={() => setMostrarCadastroUsuario(true)}
+                onClick={() => {
+                  setMostrarCadastroUsuario((valorAtual) => !valorAtual);
+                  setMostrarEmergenciaForm(false);
+                  setMostrarAvisoForm(false);
+                }}
                 style={styles.startButtonFull}
               >
-                + INCLUIR USUÁRIO
+                {mostrarCadastroUsuario ? "RECOLHER CADASTRO" : "+ INCLUIR USUÁRIO"}
               </button>
 
               <button
-                onClick={() => setMostrarEmergenciaForm(true)}
+                onClick={() => {
+                  setMostrarEmergenciaForm((valorAtual) => !valorAtual);
+                  setMostrarCadastroUsuario(false);
+                  setMostrarAvisoForm(false);
+                }}
                 style={styles.neutralButtonFull}
               >
-                EDITAR EMERGÊNCIA
+                {mostrarEmergenciaForm ? "RECOLHER EMERGÊNCIA" : "EDITAR EMERGÊNCIA"}
               </button>
             </div>
 
@@ -1269,6 +1372,19 @@ export default function App() {
               <strong>Painel de Carro</strong>
               <span>Copiloto opera o app</span>
             </div>
+
+            {avisoGeralVisivel && (
+              <div style={styles.avisoGeralBox}>
+                <strong>📢 AVISO DA CENTRAL</strong>
+                <p>{configuracao.avisoGeral.texto}</p>
+                <small>
+                  Enviado em: {formatarData(configuracao.avisoGeral.enviadoEm)}
+                </small>
+                <button onClick={confirmarAvisoGeral} style={styles.startButton}>
+                  OK, ENTENDIDO
+                </button>
+              </div>
+            )}
 
             {carroIniciado && (
               <div style={styles.carroResumo}>
@@ -1537,6 +1653,22 @@ const styles = {
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
+  },
+  broadcastPanel: {
+    background: "rgba(10,18,13,0.9)",
+    border: "1px solid rgba(0,170,255,0.35)",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  avisoGeralBox: {
+    margin: 16,
+    padding: 16,
+    borderRadius: 14,
+    background: "rgba(0,170,255,0.16)",
+    border: "1px solid #00aaff",
+    color: "#dff4ff",
+    fontSize: 15,
   },
   panelHeaderClean: {
     display: "flex",
