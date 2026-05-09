@@ -12,8 +12,8 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
-  signOut,
   onAuthStateChanged,
+  signOut,
 } from "firebase/auth";
 
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
@@ -32,11 +32,18 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-const googleProvider = new GoogleAuthProvider();
+const provider = new GoogleAuthProvider();
 
-const administradores = [
-  "leandro.atmoraes@gmail.com",
-].map((email) => email.toLowerCase());
+// TROQUE PELO SEU E-MAIL GOOGLE PRINCIPAL.
+// Esse usuário nunca poderá ser bloqueado, removido ou rebaixado pelo painel.
+const emailMestre = "leandro.atmoraes@gmail.com";
+
+const funcoes = {
+  mestre: "Mestre",
+  admin: "Coordenador/Admin",
+  operador: "Operador",
+  carro: "Carro",
+};
 
 const coresStatus = {
   Livre: "#00ff88",
@@ -92,16 +99,22 @@ function criarIconeCapivara(status, nivelSinal) {
   });
 }
 
+function normalizarEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
 export default function App() {
+  const [usuario, setUsuario] = useState(null);
+  const [carregandoAuth, setCarregandoAuth] = useState(true);
+  const [perfilUsuario, setPerfilUsuario] = useState(null);
+  const [usuariosCadastrados, setUsuariosCadastrados] = useState([]);
+  const [novoEmail, setNovoEmail] = useState("");
+  const [novaFuncao, setNovaFuncao] = useState("carro");
+
   const [tela, setTela] = useState("central");
   const [carros, setCarros] = useState([]);
   const [missoes, setMissoes] = useState({});
   const [agora, setAgora] = useState(Date.now());
-  const [usuario, setUsuario] = useState(null);
-  const [carregandoLogin, setCarregandoLogin] = useState(true);
-
-  const ehAdministrador =
-    usuario && administradores.includes(usuario.email.toLowerCase());
 
   const [motorista, setMotorista] = useState(
     () => localStorage.getItem("motorista") || ""
@@ -125,20 +138,86 @@ export default function App() {
 
   const intervaloRef = useRef(null);
 
+  const emailUsuario = normalizarEmail(usuario?.email);
+  const emailMestreNormalizado = normalizarEmail(emailMestre);
+  const ehMestre = emailUsuario && emailUsuario === emailMestreNormalizado;
+  const funcaoAtual = ehMestre ? "mestre" : perfilUsuario?.funcao;
+  const usuarioAtivo = ehMestre || perfilUsuario?.ativo === true;
+  const podeAcessarCentral = ["mestre", "admin", "operador"].includes(funcaoAtual);
+  const podeGerenciarUsuarios = funcaoAtual === "mestre";
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUsuario(user);
-      setCarregandoLogin(false);
+      setCarregandoAuth(false);
     });
 
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (usuario && !ehAdministrador && tela === "central") {
-      setTela("motorista");
+    if (!usuario) {
+      setPerfilUsuario(null);
+      return;
     }
-  }, [usuario, ehAdministrador, tela]);
+
+    const email = normalizarEmail(usuario.email);
+
+    if (email === emailMestreNormalizado) {
+      setPerfilUsuario({
+        email,
+        funcao: "mestre",
+        ativo: true,
+        conviteAceito: true,
+      });
+      return;
+    }
+
+    const unsubscribe = onSnapshot(doc(db, "usuarios", email), async (snapshot) => {
+      if (!snapshot.exists()) {
+        setPerfilUsuario(null);
+        return;
+      }
+
+      const dados = snapshot.data();
+      setPerfilUsuario(dados);
+
+      if (dados.ativo) {
+        await setDoc(
+          doc(db, "usuarios", email),
+          {
+            ultimoLogin: new Date().toISOString(),
+            conviteAceito: true,
+            nome: usuario.displayName || "",
+            foto: usuario.photoURL || "",
+          },
+          { merge: true }
+        );
+      }
+    });
+
+    return () => unsubscribe();
+  }, [usuario, emailMestreNormalizado]);
+
+  useEffect(() => {
+    if (!podeGerenciarUsuarios) return;
+
+    const unsubscribe = onSnapshot(collection(db, "usuarios"), (snapshot) => {
+      const lista = snapshot.docs
+        .map((documento) => ({ id: documento.id, ...documento.data() }))
+        .sort((a, b) => String(a.email).localeCompare(String(b.email)));
+
+      setUsuariosCadastrados(lista);
+    });
+
+    return () => unsubscribe();
+  }, [podeGerenciarUsuarios]);
+
+  useEffect(() => {
+    if (!carregandoAuth && usuario && !podeAcessarCentral && tela === "central") {
+      setTela("carro");
+    }
+  }, [carregandoAuth, usuario, podeAcessarCentral, tela]);
 
   useEffect(() => localStorage.setItem("motorista", motorista), [motorista]);
   useEffect(() => localStorage.setItem("copiloto", copiloto), [copiloto]);
@@ -157,6 +236,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!usuarioAtivo) return;
+
     const unsubscribe = onSnapshot(collection(db, "carros"), (snapshot) => {
       const lista = snapshot.docs.map((documento) => ({
         id: documento.id,
@@ -167,9 +248,11 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [usuarioAtivo]);
 
   useEffect(() => {
+    if (!usuarioAtivo) return;
+
     const unsubscribe = onSnapshot(collection(db, "missoes"), (snapshot) => {
       const lista = {};
 
@@ -181,10 +264,10 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [usuarioAtivo]);
 
   useEffect(() => {
-    if (!idEquipe) return;
+    if (!idEquipe || !usuarioAtivo) return;
 
     const unsubscribe = onSnapshot(doc(db, "missoes", idEquipe), (snapshot) => {
       if (snapshot.exists()) {
@@ -199,28 +282,116 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [idEquipe]);
+  }, [idEquipe, usuarioAtivo]);
 
-  async function entrarComGoogle() {
+  async function loginGoogle() {
     try {
-      await signInWithPopup(auth, googleProvider);
+      await signInWithPopup(auth, provider);
     } catch (erro) {
-      console.log("Erro no login:", erro);
-      alert("Não foi possível entrar com Google.");
+      console.log(erro);
+      alert("Erro ao entrar com Google. Verifique o Firebase Authentication e o domínio autorizado.");
     }
   }
 
-  async function sairDaConta() {
-    try {
-      await signOut(auth);
-    } catch (erro) {
-      console.log("Erro ao sair:", erro);
-      alert("Não foi possível sair da conta.");
+  async function sair() {
+    await signOut(auth);
+  }
+
+  async function adicionarUsuario() {
+    const email = normalizarEmail(novoEmail);
+
+    if (!email) {
+      alert("Informe o e-mail do usuário.");
+      return;
     }
+
+    if (email === emailMestreNormalizado) {
+      alert("O usuário mestre já possui acesso total permanente.");
+      return;
+    }
+
+    await setDoc(
+      doc(db, "usuarios", email),
+      {
+        email,
+        funcao: novaFuncao,
+        ativo: true,
+        conviteAceito: false,
+        criadoEm: new Date().toISOString(),
+        criadoPor: emailUsuario,
+      },
+      { merge: true }
+    );
+
+    setNovoEmail("");
+    setNovaFuncao("carro");
+
+    alert("Usuário adicionado. Envie o convite para ele acessar com a conta Google.");
+  }
+
+  async function alterarFuncaoUsuario(email, novaFuncaoUsuario) {
+    const emailNormalizado = normalizarEmail(email);
+
+    if (emailNormalizado === emailMestreNormalizado) {
+      alert("O usuário mestre não pode ter a função alterada.");
+      return;
+    }
+
+    await setDoc(
+      doc(db, "usuarios", emailNormalizado),
+      {
+        funcao: novaFuncaoUsuario,
+        atualizadoEm: new Date().toISOString(),
+        atualizadoPor: emailUsuario,
+      },
+      { merge: true }
+    );
+  }
+
+  async function bloquearUsuario(email) {
+    const emailNormalizado = normalizarEmail(email);
+
+    if (emailNormalizado === emailMestreNormalizado) {
+      alert("O usuário mestre não pode ser bloqueado.");
+      return;
+    }
+
+    await setDoc(
+      doc(db, "usuarios", emailNormalizado),
+      {
+        ativo: false,
+        bloqueadoEm: new Date().toISOString(),
+        bloqueadoPor: emailUsuario,
+      },
+      { merge: true }
+    );
+  }
+
+  async function reativarUsuario(email) {
+    const emailNormalizado = normalizarEmail(email);
+
+    await setDoc(
+      doc(db, "usuarios", emailNormalizado),
+      {
+        ativo: true,
+        reativadoEm: new Date().toISOString(),
+        reativadoPor: emailUsuario,
+      },
+      { merge: true }
+    );
+  }
+
+  function abrirConviteEmail(email, funcao) {
+    const assunto = encodeURIComponent("Convite para acessar a Operação Capivara");
+    const corpo = encodeURIComponent(
+      `Olá,\n\nVocê foi adicionado à plataforma Operação Capivara.\n\nFunção atribuída: ${funcoes[funcao] || funcao}\n\nPara ativar seu acesso, entre com sua conta Google no link abaixo:\n\nhttps://operacao-capivara.vercel.app\n\nApós o primeiro login seu acesso será validado automaticamente.\n\nEquipe Operação Capivara`
+    );
+
+    window.open(`mailto:${email}?subject=${assunto}&body=${corpo}`, "_blank");
   }
 
   function gerarIdEquipe() {
-    const nomeBase = copiloto || motorista || "equipe";
+    const nomeBase = copiloto || motorista || "carro";
 
     return `${nomeBase
       .trim()
@@ -359,12 +530,12 @@ export default function App() {
     setIdEquipe("");
     setMissaoAtual(null);
 
-    alert("Equipe limpa e removida da Central.");
+    alert("Carro limpo e removido da Central.");
   }
 
   async function enviarMissao() {
     if (!equipeMissao) {
-      alert("Selecione uma equipe.");
+      alert("Selecione um carro.");
       return;
     }
 
@@ -397,7 +568,7 @@ export default function App() {
     setDestinoMissao("");
     setSetorMissao("");
 
-    alert("Solicitação enviada para a equipe!");
+    alert("Solicitação enviada para o carro!");
   }
 
   async function aceitarMissao() {
@@ -607,29 +778,39 @@ export default function App() {
     missaoAtual.statusOperacional !== "Concluída" &&
     missaoAtual.statusOperacional !== "Recusada";
 
-  if (carregandoLogin) {
+  if (carregandoAuth) {
     return (
-      <div style={styles.loginPage}>
-        <div style={styles.loginCard}>
-          <h1 style={styles.title}>OPERAÇÃO CAPIVARA</h1>
-          <p>Carregando acesso...</p>
-        </div>
+      <div style={styles.appCenter}>
+        <div style={styles.loginCard}>Carregando Operação Capivara...</div>
       </div>
     );
   }
 
   if (!usuario) {
     return (
-      <div style={styles.loginPage}>
+      <div style={styles.appCenter}>
         <div style={styles.loginCard}>
-          <div style={styles.kicker}>ACESSO RESTRITO</div>
+          <div style={styles.kicker}>CENTRAL TÁTICA</div>
           <h1 style={styles.title}>OPERAÇÃO CAPIVARA</h1>
-          <p style={styles.loginText}>
-            Entre com sua conta Google para acessar a Central Operacional.
-          </p>
-
-          <button onClick={entrarComGoogle} style={styles.loginButton}>
+          <p>Entre com sua conta Google para acessar o sistema.</p>
+          <button onClick={loginGoogle} style={styles.startButtonFull}>
             ENTRAR COM GOOGLE
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!usuarioAtivo) {
+    return (
+      <div style={styles.appCenter}>
+        <div style={styles.loginCard}>
+          <h2>Acesso não liberado</h2>
+          <p>
+            O e-mail <b>{usuario.email}</b> não está cadastrado ou está bloqueado.
+          </p>
+          <button onClick={sair} style={styles.neutralButtonFull}>
+            SAIR
           </button>
         </div>
       </div>
@@ -652,21 +833,13 @@ export default function App() {
         <div>
           <div style={styles.kicker}>CENTRAL TÁTICA</div>
           <h1 style={styles.title}>OPERAÇÃO CAPIVARA</h1>
-          <div style={styles.subtitle}>Controle total da missão</div>
+          <div style={styles.subtitle}>
+            {funcoes[funcaoAtual] || funcaoAtual} — {usuario.email}
+          </div>
         </div>
 
         <div style={styles.nav}>
-          <div style={styles.userBox}>
-            <span>{usuario.displayName || "Usuário"}</span>
-            <small>{usuario.email}</small>
-            <small>{ehAdministrador ? "Coordenador" : "Equipe"}</small>
-          </div>
-
-          <button onClick={sairDaConta} style={styles.logoutButton}>
-            Sair
-          </button>
-
-          {ehAdministrador && (
+          {podeAcessarCentral && (
             <button
               onClick={() => setTela("central")}
               style={{
@@ -679,18 +852,34 @@ export default function App() {
           )}
 
           <button
-            onClick={() => setTela("motorista")}
+            onClick={() => setTela("carro")}
             style={{
               ...styles.navButton,
-              ...(tela === "motorista" ? styles.navButtonActive : {}),
+              ...(tela === "carro" ? styles.navButtonActive : {}),
             }}
           >
-            Equipe
+            Painel de Carro
+          </button>
+
+          {podeGerenciarUsuarios && (
+            <button
+              onClick={() => setTela("usuarios")}
+              style={{
+                ...styles.navButton,
+                ...(tela === "usuarios" ? styles.navButtonActive : {}),
+              }}
+            >
+              Usuários
+            </button>
+          )}
+
+          <button onClick={sair} style={styles.navButton}>
+            Sair
           </button>
         </div>
       </header>
 
-      {ehAdministrador && tela === "central" && (
+      {podeAcessarCentral && tela === "central" && (
         <main style={styles.main}>
           <section style={styles.statsGrid}>
             <div style={styles.statCard}>
@@ -736,20 +925,20 @@ export default function App() {
 
           {(apoio > 0 || emergencia > 0) && (
             <section style={styles.alertApoio}>
-              🚨 ATENÇÃO: existe equipe solicitando apoio ou em emergência!
+              🚨 ATENÇÃO: existe carro solicitando apoio ou em emergência!
             </section>
           )}
 
           {sinalPerdido > 0 && (
             <section style={styles.alertSinal}>
-              ⚠️ ATENÇÃO: existe equipe sem atualização há mais de 90 segundos.
+              ⚠️ ATENÇÃO: existe carro sem atualização há mais de 90 segundos.
             </section>
           )}
 
           <section style={styles.missionPanel}>
             <div style={styles.panelHeaderClean}>
               <strong>Enviar solicitação de missão</strong>
-              <span>Equipe precisa aceitar</span>
+              <span>Carro precisa aceitar</span>
             </div>
 
             <select
@@ -757,7 +946,7 @@ export default function App() {
               onChange={(e) => setEquipeMissao(e.target.value)}
               style={styles.inputFull}
             >
-              <option value="">Selecione uma equipe online</option>
+              <option value="">Selecione um carro online</option>
               {carrosOnline
                 .filter((carro) => carro.status === "Livre")
                 .map((carro) => (
@@ -772,7 +961,7 @@ export default function App() {
             <input
               value={setorMissao}
               onChange={(e) => setSetorMissao(e.target.value)}
-              placeholder="Setor. Ex: Garcia, Centro, Velha"
+              placeholder="Setor operacional temporário. Ex: Garcia, Centro, Velha"
               style={styles.inputFull}
             />
 
@@ -848,7 +1037,7 @@ export default function App() {
                       >
                         <Popup>
                           <div style={{ minWidth: 250 }}>
-                            <strong>{carro.identificador || "Veículo"}</strong>
+                            <strong>{carro.identificador || "Carro"}</strong>
                             <br />
                             <b>Motorista:</b>{" "}
                             {carro.motorista || "Não informado"}
@@ -900,7 +1089,7 @@ export default function App() {
             <section style={styles.sinalPanel}>
               <div style={styles.panelHeaderClean}>
                 <strong>Monitor de sinal</strong>
-                <span>Equipes com atualização atrasada</span>
+                <span>Carros com atualização atrasada</span>
               </div>
 
               {carrosOnline
@@ -934,11 +1123,11 @@ export default function App() {
         </main>
       )}
 
-      {tela === "motorista" && (
+      {tela === "carro" && (
         <main style={styles.driverPage}>
           <section style={styles.driverCard}>
             <div style={styles.panelHeader}>
-              <strong>Painel da Equipe</strong>
+              <strong>Painel de Carro</strong>
               <span>Copiloto opera o app</span>
             </div>
 
@@ -1034,7 +1223,7 @@ export default function App() {
               style={styles.input}
             />
 
-            <label style={styles.label}>Identificação do veículo</label>
+            <label style={styles.label}>Identificação do carro</label>
             <input
               value={identificador}
               onChange={(e) => setIdentificador(e.target.value)}
@@ -1051,8 +1240,98 @@ export default function App() {
             </button>
 
             <button onClick={trocarEquipe} style={styles.neutralButton}>
-              TROCAR EQUIPE
+              TROCAR CARRO
             </button>
+          </section>
+        </main>
+      )}
+
+      {podeGerenciarUsuarios && tela === "usuarios" && (
+        <main style={styles.main}>
+          <section style={styles.userPanel}>
+            <div style={styles.panelHeaderClean}>
+              <strong>Painel Mestre de Usuários</strong>
+              <span>Somente o usuário mestre acessa</span>
+            </div>
+
+            <div style={styles.userFormGrid}>
+              <input
+                value={novoEmail}
+                onChange={(e) => setNovoEmail(e.target.value)}
+                placeholder="email@exemplo.com"
+                style={styles.inputFull}
+              />
+
+              <select
+                value={novaFuncao}
+                onChange={(e) => setNovaFuncao(e.target.value)}
+                style={styles.inputFull}
+              >
+                <option value="admin">Coordenador/Admin</option>
+                <option value="operador">Operador</option>
+                <option value="carro">Carro</option>
+              </select>
+
+              <button onClick={adicionarUsuario} style={styles.startButtonFull}>
+                ADICIONAR USUÁRIO
+              </button>
+            </div>
+
+            <div style={styles.masterCard}>
+              <strong>Usuário mestre</strong>
+              <p>{emailMestreNormalizado}</p>
+              <small>
+                Permanente. Não pode ser removido, bloqueado ou rebaixado.
+              </small>
+            </div>
+
+            {usuariosCadastrados.map((item) => (
+              <div key={item.id} style={styles.userItem}>
+                <div>
+                  <strong>{item.email}</strong>
+                  <p>
+                    {item.ativo ? "🟢 Ativo" : "🔴 Bloqueado"} —{" "}
+                    {item.conviteAceito ? "Convite aceito" : "Convite pendente"}
+                  </p>
+                  <small>Último login: {formatarData(item.ultimoLogin)}</small>
+                </div>
+
+                <select
+                  value={item.funcao || "carro"}
+                  onChange={(e) => alterarFuncaoUsuario(item.email, e.target.value)}
+                  style={styles.smallSelect}
+                >
+                  <option value="admin">Coordenador/Admin</option>
+                  <option value="operador">Operador</option>
+                  <option value="carro">Carro</option>
+                </select>
+
+                <div style={styles.userActions}>
+                  <button
+                    onClick={() => abrirConviteEmail(item.email, item.funcao)}
+                    style={styles.smallButton}
+                  >
+                    Convite
+                  </button>
+
+                  {item.ativo ? (
+                    <button
+                      onClick={() => bloquearUsuario(item.email)}
+                      style={styles.smallDangerButton}
+                    >
+                      Bloquear
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => reativarUsuario(item.email)}
+                      style={styles.smallButton}
+                    >
+                      Reativar
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </section>
         </main>
       )}
@@ -1071,9 +1350,17 @@ function formatarData(valor) {
 }
 
 const styles = {
-  loginPage: {
+  app: {
     background:
-      "radial-gradient(circle at top, #17351f 0%, #0b0f0d 38%, #050705 100%)",
+      "radial-gradient(circle at top, #17351f 0%, #0b0d0f 38%, #050705 100%)",
+    minHeight: "100vh",
+    color: "#d8ffe8",
+    padding: 18,
+    fontFamily: "Arial, sans-serif",
+  },
+  appCenter: {
+    background:
+      "radial-gradient(circle at top, #17351f 0%, #0b0d0f 38%, #050705 100%)",
     minHeight: "100vh",
     color: "#d8ffe8",
     display: "flex",
@@ -1084,57 +1371,12 @@ const styles = {
   },
   loginCard: {
     width: "100%",
-    maxWidth: 430,
+    maxWidth: 460,
     background: "rgba(10,18,13,0.92)",
     border: "1px solid rgba(0,255,136,0.35)",
     borderRadius: 18,
     padding: 24,
     textAlign: "center",
-    boxShadow: "0 0 30px rgba(0,255,136,0.08)",
-  },
-  loginText: {
-    color: "#bfffd8",
-    lineHeight: 1.5,
-    marginBottom: 22,
-  },
-  loginButton: {
-    width: "100%",
-    padding: 15,
-    borderRadius: 10,
-    background: "#00aa55",
-    color: "#fff",
-    border: "none",
-    fontWeight: "bold",
-    cursor: "pointer",
-    fontSize: 15,
-  },
-  userBox: {
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    color: "#d8ffe8",
-    fontSize: 13,
-    border: "1px solid rgba(0,255,136,0.25)",
-    borderRadius: 10,
-    padding: "8px 12px",
-    background: "#101812",
-  },
-  logoutButton: {
-    padding: "12px 18px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,51,51,0.45)",
-    background: "#301111",
-    color: "#ffd6d6",
-    cursor: "pointer",
-    fontWeight: "bold",
-  },
-  app: {
-    background:
-      "radial-gradient(circle at top, #17351f 0%, #0b0f0d 38%, #050705 100%)",
-    minHeight: "100vh",
-    color: "#d8ffe8",
-    padding: 18,
-    fontFamily: "Arial, sans-serif",
   },
   header: {
     maxWidth: 1300,
@@ -1167,6 +1409,7 @@ const styles = {
     display: "flex",
     gap: 10,
     flexWrap: "wrap",
+    justifyContent: "flex-end",
   },
   navButton: {
     padding: "12px 18px",
@@ -1241,6 +1484,7 @@ const styles = {
     justifyContent: "space-between",
     marginBottom: 12,
     color: "#fff",
+    gap: 12,
   },
   mapPanelFull: {
     background: "rgba(10,18,13,0.9)",
@@ -1384,6 +1628,17 @@ const styles = {
     cursor: "pointer",
     fontSize: 15,
   },
+  neutralButtonFull: {
+    width: "100%",
+    padding: 15,
+    borderRadius: 10,
+    background: "#26352b",
+    color: "#d8ffe8",
+    border: "1px solid rgba(0,255,136,0.35)",
+    fontWeight: "bold",
+    cursor: "pointer",
+    fontSize: 15,
+  },
   blueButton: {
     width: "calc(100% - 32px)",
     margin: "10px 16px 0",
@@ -1448,5 +1703,67 @@ const styles = {
     border: "1px solid rgba(0,255,136,0.2)",
     color: "#bfffd8",
     fontSize: 13,
+  },
+  userPanel: {
+    background: "rgba(10,18,13,0.9)",
+    border: "1px solid rgba(0,255,136,0.25)",
+    borderRadius: 16,
+    padding: 16,
+  },
+  userFormGrid: {
+    display: "grid",
+    gridTemplateColumns: "1.5fr 1fr auto",
+    gap: 12,
+    alignItems: "start",
+  },
+  masterCard: {
+    background: "rgba(255,208,0,0.12)",
+    border: "1px solid #ffd000",
+    borderRadius: 12,
+    padding: 14,
+    margin: "14px 0",
+    color: "#fff2a8",
+  },
+  userItem: {
+    display: "grid",
+    gridTemplateColumns: "1fr 220px auto",
+    gap: 12,
+    alignItems: "center",
+    background: "#111a14",
+    border: "1px solid rgba(0,255,136,0.18)",
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
+  },
+  smallSelect: {
+    padding: 10,
+    borderRadius: 8,
+    background: "#080d09",
+    color: "#d8ffe8",
+    border: "1px solid rgba(0,255,136,0.35)",
+  },
+  userActions: {
+    display: "flex",
+    gap: 8,
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+  },
+  smallButton: {
+    padding: "10px 12px",
+    borderRadius: 8,
+    background: "#0066cc",
+    color: "#fff",
+    border: "none",
+    fontWeight: "bold",
+    cursor: "pointer",
+  },
+  smallDangerButton: {
+    padding: "10px 12px",
+    borderRadius: 8,
+    background: "#aa0000",
+    color: "#fff",
+    border: "none",
+    fontWeight: "bold",
+    cursor: "pointer",
   },
 };
